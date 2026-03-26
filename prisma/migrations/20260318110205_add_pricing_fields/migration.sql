@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "Product" ADD COLUMN     "cargoCost" DOUBLE PRECISION,
+ADD COLUMN     "commissionRate" DOUBLE PRECISION,
+ADD COLUMN     "costPrice" DOUBLE PRECISION,
+ADD COLUMN     "targetProfitRate" DOUBLE PRECISION,
+ADD COLUMN     "vatRate" DOUBLE PRECISION;

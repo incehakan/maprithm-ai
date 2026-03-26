@@ -1,0 +1,146 @@
+import { NextResponse } from "next/server";
+import { createActivityLog } from "@/lib/activityLog";
+import {
+  syncTrendyolCategoryAttributesForCategory,
+  syncTrendyolCategoryAttributesForAllLeafCategories
+} from "@/lib/trendyolSyncCategoryAttributes";
+import { requireActiveStore } from "@/lib/requireActiveStore";
+
+type Body = {
+  categoryId?: unknown;
+  syncAllLeafCategories?: unknown;
+};
+
+export async function POST(request: Request) {
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: any) {
+    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
+  }
+
+  let body: Body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Geçersiz JSON." }, { status: 400 });
+  }
+
+  const syncAll =
+    body?.syncAllLeafCategories === true ||
+    body?.syncAllLeafCategories === "true";
+
+  if (syncAll) {
+    try {
+      const bulk = await syncTrendyolCategoryAttributesForAllLeafCategories(
+        ctx.userId,
+        ctx.storeId
+      );
+
+      if (!bulk.success) {
+        return NextResponse.json(
+          { error: bulk.message },
+          { status: bulk.status }
+        );
+      }
+
+      const d = bulk.data;
+      const failedNote =
+        d.failedCategoryIds.length > 0
+          ? ` Başarısız kategori ID: ${d.failedCategoryIds.slice(0, 20).join(", ")}${d.failedCategoryIds.length > 20 ? "…" : ""}.`
+          : "";
+
+      await createActivityLog({
+        userId: ctx.userId,
+        storeId: ctx.storeId,
+        membershipId: ctx.membershipId,
+        action: "TRENDYOL_CATEGORY_ATTRIBUTES_SYNCED",
+        entityType: "TRENDYOL_SYNC",
+        entityId: null,
+        message: `Trendyol kategori özellikleri senkronize edildi (${d.categoriesProcessed} yaprak kategori, ${d.attributeCount} özellik, ${d.valueCount} değer).${failedNote}`
+      });
+
+      return NextResponse.json({
+        success: true,
+        mode: "allLeaf" as const,
+        categoriesProcessed: d.categoriesProcessed,
+        categoriesFailed: d.categoriesFailed,
+        attributeCount: d.attributeCount,
+        valueCount: d.valueCount,
+        failedCategoryIds: d.failedCategoryIds,
+        message: `${d.categoriesProcessed} yaprak kategori işlendi; ${d.attributeCount} özellik, ${d.valueCount} değer kaydedildi.${d.categoriesFailed > 0 ? ` ${d.categoriesFailed} kategoride hata.` : ""}`
+      });
+    } catch (error) {
+      console.error("Trendyol sync-category-attributes (bulk) error:", error);
+      const msg =
+        error instanceof Error
+          ? error.message
+          : "Toplu kategori özellikleri çekilirken hata oluştu.";
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
+  }
+
+  const rawId = body?.categoryId;
+  const categoryId =
+    typeof rawId === "number"
+      ? rawId
+      : typeof rawId === "string"
+        ? parseInt(rawId, 10)
+        : NaN;
+
+  if (
+    !Number.isFinite(categoryId) ||
+    categoryId <= 0 ||
+    !Number.isInteger(categoryId)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "Geçerli bir categoryId gönderin veya tüm yapraklar için { \"syncAllLeafCategories\": true } kullanın."
+      },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const one = await syncTrendyolCategoryAttributesForCategory(
+      ctx.userId,
+      ctx.storeId,
+      categoryId
+    );
+
+    if (!one.success) {
+      return NextResponse.json(
+        { error: one.message },
+        { status: one.status >= 400 ? one.status : 500 }
+      );
+    }
+
+    await createActivityLog({
+      userId: ctx.userId,
+      storeId: ctx.storeId,
+      membershipId: ctx.membershipId,
+      action: "TRENDYOL_CATEGORY_ATTRIBUTES_SYNCED",
+      entityType: "TRENDYOL_SYNC",
+      entityId: String(categoryId),
+      message: `Trendyol kategori özellikleri senkronize edildi (kategori: ${categoryId}, ${one.attributeCount} özellik, ${one.valueCount} değer)`
+    });
+
+    return NextResponse.json({
+      success: true,
+      mode: "single" as const,
+      categoryId,
+      attributeCount: one.attributeCount,
+      valueCount: one.valueCount,
+      message: `${one.attributeCount} özellik, ${one.valueCount} değer kaydedildi.`
+    });
+  } catch (error) {
+    console.error("Trendyol sync-category-attributes error:", error);
+    const msg =
+      error instanceof Error
+        ? error.message
+        : "Kategori özellikleri çekilirken hata oluştu.";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}

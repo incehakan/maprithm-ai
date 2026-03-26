@@ -1,0 +1,625 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  password  String
+  name      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Legacy relations (will be store-scoped gradually)
+  products                    Product[]
+  activityLogs                ActivityLog[]
+  settings                    UserSettings[]
+  marketplaceConnections      MarketplaceConnection[]
+  productMarketplaceMappings  ProductMarketplaceMapping[]
+  importJobs                  ImportJob[]
+  xmlFeedSources              XmlFeedSource[]
+  trendyolPublishJobs         TrendyolPublishJob[]
+
+  // Store memberships
+  storeMemberships            StoreMembership[]
+  invitedMemberships          StoreMembership[] @relation("InvitedBy")
+}
+
+model Store {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  status    String   @default("active") // active/inactive
+  plan      String?
+  timezone  String?
+  currency  String   @default("TRY")
+  locale    String   @default("tr-TR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships StoreMembership[]
+  activityLogs ActivityLog[]
+  products Product[]
+  importJobs ImportJob[]
+  xmlFeedSources XmlFeedSource[]
+  marketplaceConnections MarketplaceConnection[]
+  userSettings UserSettings[]
+  trendyolPublishJobs TrendyolPublishJob[]
+  productMarketplaceMappings ProductMarketplaceMapping[]
+  productMarketplaceAttributes ProductMarketplaceAttribute[]
+  marketplaceOrders           MarketplaceOrder[]
+  marketplaceOrderLines       MarketplaceOrderLine[]
+  marketplaceOrderEvents      MarketplaceOrderEvent[]
+  storeRolePermissions       StoreRolePermission[]
+
+  @@index([status])
+}
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions     RolePermission[]
+  storeRolePermissions StoreRolePermission[]
+  storeMemberships    StoreMembership[]
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions      RolePermission[]
+  membershipOverrides  StoreMembershipPermissionOverride[]
+  storeRolePermissions   StoreRolePermission[]
+}
+
+/// Mağaza bazlı rol–izin sapması: global RolePermission + bu tablo = etkin izinler.
+model StoreRolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  storeId      String   @db.Uuid
+  roleId       String   @db.Uuid
+  permissionId String   @db.Uuid
+  isGranted    Boolean
+
+  store      Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, roleId, permissionId])
+  @@index([storeId, roleId])
+}
+
+model RolePermission {
+  id           String   @id @default(uuid()) @db.Uuid
+  roleId       String   @db.Uuid
+  permissionId String   @db.Uuid
+  role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model StoreMembership {
+  id              String   @id @default(uuid()) @db.Uuid
+  storeId         String   @db.Uuid
+  userId          String   @db.Uuid
+  roleId          String   @db.Uuid
+  isActive        Boolean  @default(true)
+  invitedByUserId String?  @db.Uuid
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role  Role  @relation(fields: [roleId], references: [id])
+  invitedByUser User? @relation("InvitedBy", fields: [invitedByUserId], references: [id])
+
+  permissionOverrides StoreMembershipPermissionOverride[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, userId])
+  @@index([userId, storeId])
+  @@index([storeId, roleId])
+}
+
+model StoreMembershipPermissionOverride {
+  id           String  @id @default(uuid()) @db.Uuid
+  membershipId String  @db.Uuid
+  permissionId String  @db.Uuid
+  isAllowed    Boolean
+
+  membership StoreMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([membershipId, permissionId])
+}
+
+model XmlFeedSource {
+  id                  String   @id @default(uuid()) @db.Uuid
+  userId              String   @db.Uuid
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId             String   @db.Uuid
+  store               Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name                String
+  feedUrl             String
+  isActive            Boolean  @default(true)
+  syncIntervalMinutes Int      @default(60)
+  lastSyncedAt        DateTime?
+  lastSyncStatus      String?
+  lastSyncMessage     String?
+  lastSyncProductsUpdated Int?
+  lastSyncSkippedCount    Int?
+  lastSyncPublishedCount  Int?
+  lastSyncInventoryPushCount Int?
+  /// Feed'de artık yoksa ürünü stok 0 + taslak yap
+  deactivateMissingFromFeed Boolean @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId, isActive, updatedAt])
+  @@index([storeId, isActive, updatedAt])
+}
+
+model ImportJob {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId          String   @db.Uuid
+  store            Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  sourceType       String
+  originalFileName String
+  status           String   @default("pending")
+  usageStatus      String   @default("active")
+  totalRows        Int      @default(0)
+  successRows      Int      @default(0)
+  failedRows       Int      @default(0)
+
+  rows ImportRow[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([userId, usageStatus, createdAt])
+  @@index([storeId, usageStatus, createdAt])
+}
+
+model ImportRow {
+  id                     String    @id @default(uuid()) @db.Uuid
+  importJobId            String    @db.Uuid
+  importJob              ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  rowIndex               Int
+  rawData                Json
+
+  normalizedName         String?
+  normalizedDescription  String?
+  normalizedBrand        String?
+  normalizedCategoryText String?
+  normalizedSku          String?
+  normalizedBarcode      String?
+  mainImageUrl           String?
+  imageUrls              Json?
+  price                  Float?
+  stock                  Int?
+
+  status                 String    @default("pending")
+  errorMessage           String?
+
+  marketplaceSuggestions ImportRowMarketplaceSuggestion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([importJobId, rowIndex])
+}
+
+model ImportRowMarketplaceSuggestion {
+  id                         String   @id @default(uuid()) @db.Uuid
+  importRowId                String   @db.Uuid
+  importRow                  ImportRow @relation(fields: [importRowId], references: [id], onDelete: Cascade)
+
+  platform                   String   @default("trendyol")
+  suggestedBrandId           Int?
+  suggestedBrandName         String?
+  suggestedCategoryId        Int?
+  suggestedCategoryName      String?
+  confidenceScore            Float?
+  aiReasoningSummary         String?
+  missingRequiredAttributes  Json?
+  status                     String   @default("suggested")
+
+  suggestedAttributes ImportRowMarketplaceSuggestedAttribute[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([importRowId, platform])
+  @@index([importRowId])
+}
+
+model ImportRowMarketplaceSuggestedAttribute {
+  id                String   @id @default(uuid()) @db.Uuid
+  suggestionId      String   @db.Uuid
+  suggestion        ImportRowMarketplaceSuggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+
+  attributeId       Int
+  attributeName     String
+  attributeValueId  Int?
+  attributeValue    String?
+  customValue       String?
+  isRequired        Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([suggestionId, attributeId])
+}
+
+model UserSettings {
+  id                      String   @id @default(uuid()) @db.Uuid
+  userId                  String   @db.Uuid
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId                 String   @db.Uuid
+  store                   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  companyName             String?
+  defaultCurrency         String   @default("TRY")
+  defaultVatRate          Float    @default(20)
+  defaultCommissionRate   Float?
+  defaultCargoCost        Float?
+  defaultTargetProfitRate Float?
+  defaultDesi             Float    @default(1)
+  fallbackBrand           String?
+  fallbackCategory        String?
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([storeId])
+  @@index([userId, storeId])
+}
+
+model Product {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId        String   @db.Uuid
+  store          Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  name           String
+  description    String?
+  price          Decimal
+  stock          Int
+
+  // Yeni alanlar
+  category       String?
+  brand          String?
+  sku            String?
+  status         String   @default("draft")
+  lifecycleStatus String  @default("draft")
+  mainImageUrl   String?
+  imageUrls      Json?
+  archivedAt     DateTime?
+  publishedAt    DateTime?
+  unpublishedAt  DateTime?
+  seoDescription String?
+  tags           String?
+  sourceImportJobId String? @db.Uuid
+  sourceImportRowId String? @db.Uuid
+  createdFromImport Boolean @default(false)
+
+  // Fiyat önerisi alanları
+  costPrice        Float?
+  commissionRate   Float?
+  cargoCost        Float?
+  vatRate          Float?
+  targetProfitRate Float?
+
+  // Demo veri işaretleme
+  isDemo         Boolean  @default(false)
+
+  /// XML akıllı senkron: içerik imzası (başlık, açıklama, görseller, marka, sku)
+  contentHash    String?
+  priceHash      String?
+  stockHash      String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  marketplaceMappings ProductMarketplaceMapping[]
+
+  @@index([userId, lifecycleStatus])
+  @@index([userId, archivedAt])
+  @@index([userId, sourceImportJobId])
+  @@index([storeId, lifecycleStatus])
+  @@index([storeId, archivedAt])
+  @@index([storeId, sourceImportJobId])
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  storeId    String   @db.Uuid
+  userId     String   @db.Uuid
+  membershipId String? @db.Uuid
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     String
+  entityType String
+  entityId   String?
+  message    String
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([storeId, createdAt])
+}
+
+model MarketplaceConnection {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @db.Uuid
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId            String    @db.Uuid
+  store              Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  platform           String    @default("trendyol")
+  sellerId           String
+  apiKeyEncrypted    String
+  apiSecretEncrypted String
+  userAgent          String
+  environment        String    @default("production")
+  isActive           Boolean   @default(true)
+  lastTestAt         DateTime?
+
+  // Trendyol createProduct: shipmentAddressId / returningAddressId
+  shipmentAddressId  String?
+  returnAddressId    String?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([storeId, platform])
+  @@index([userId, platform])
+  @@index([storeId, platform])
+}
+
+model MarketplaceOrder {
+  id                  String    @id @default(uuid()) @db.Uuid
+  storeId             String    @db.Uuid
+  store               Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform            String    @default("trendyol")
+  orderNumber         String
+  orderDate           DateTime
+  shipmentPackageId   String
+  packageStatus       String?
+  cargoTrackingNumber String?
+  cargoProviderName   String?
+  customerFirstName   String?
+  customerLastName    String?
+  customerEmailMasked String?
+  customerPhoneMasked String?
+  totalPrice          Float?
+  currency            String    @default("TRY")
+  invoiceAddress      Json?
+  shipmentAddress     Json?
+  rawData             Json?
+  lastFetchedAt       DateTime?
+  /// manual_sync | webhook — son başarılı yazımın kaynağı
+  lastIngestSource    String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  lines  MarketplaceOrderLine[]
+  events MarketplaceOrderEvent[]
+
+  @@unique([storeId, platform, shipmentPackageId])
+  @@index([storeId, orderDate])
+  @@index([storeId, packageStatus])
+  @@index([storeId, orderNumber])
+}
+
+model MarketplaceOrderLine {
+  id               String  @id @default(uuid()) @db.Uuid
+  storeId          String  @db.Uuid
+  store            Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId          String  @db.Uuid
+  order            MarketplaceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  lineId           String?
+  barcode          String?
+  stockCode        String?
+  productName      String?
+  quantity         Int     @default(1)
+  lineUnitPrice    Float?
+  vatBaseAmount    Float?
+  commissionAmount Float?
+  rawData          Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([storeId, orderId])
+}
+
+model MarketplaceOrderEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  storeId   String   @db.Uuid
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId   String?  @db.Uuid
+  order     MarketplaceOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  action    String
+  message   String
+  rawData   Json?
+  createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([orderId])
+}
+
+model TrendyolBrand {
+  id           String    @id @default(uuid()) @db.Uuid
+  brandId      Int       @unique
+  name         String
+  isActive     Boolean?
+  rawData      Json?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model TrendyolCategory {
+  id               String    @id @default(uuid()) @db.Uuid
+  categoryId       Int       @unique
+  name             String
+  parentCategoryId Int?
+  isLeaf           Boolean   @default(false)
+  isActive         Boolean?
+  rawData          Json?
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model TrendyolCategoryAttribute {
+  id             String    @id @default(uuid()) @db.Uuid
+  categoryId     Int
+  attributeId    Int
+  attributeName  String
+  isRequired     Boolean   @default(false)
+  isVariantable  Boolean   @default(false)
+  allowCustom    Boolean   @default(false)
+  rawData        Json?
+  lastSyncedAt   DateTime?
+
+  values TrendyolCategoryAttributeValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryId, attributeId])
+}
+
+model TrendyolCategoryAttributeValue {
+  id                  String   @id @default(uuid()) @db.Uuid
+  categoryAttributeId String   @db.Uuid
+  categoryAttribute   TrendyolCategoryAttribute @relation(fields: [categoryAttributeId], references: [id], onDelete: Cascade)
+
+  attributeValueId Int
+  attributeValue   String
+  rawData          Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([categoryAttributeId, attributeValueId])
+}
+
+// Trendyol batch job (create/update) - keyed by batchRequestId
+model TrendyolPublishJob {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storeId          String   @db.Uuid
+  store            Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  batchRequestId   String
+  platform         String   @default("trendyol")
+  batchStatus      String?
+  itemCount        Int      @default(0)
+  successCount     Int      @default(0)
+  failedCount      Int      @default(0)
+  pendingCount     Int      @default(0)
+  batchRequestType String?
+  lastSyncMessage  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, batchRequestId])
+  @@index([userId, updatedAt])
+  @@index([storeId, updatedAt])
+}
+
+model ProductMarketplaceMapping {
+  id                  String   @id @default(uuid()) @db.Uuid
+  productId           String   @db.Uuid
+  userId              String   @db.Uuid
+  storeId             String   @db.Uuid
+  product             Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store               Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  platform            String   @default("trendyol")
+  trendyolBrandId     Int?
+  trendyolCategoryId  Int?
+  barcode             String?
+  stockCode           String?
+  productMainId       String?
+  cargoCompanyId      Int?
+  dimensionalWeight   Float?
+  currencyType        String   @default("TRY")
+  vatRate             Float?
+  listPrice           Float?
+  salePrice           Float?
+  quantity            Int?
+  useProductPrice     Boolean  @default(true)
+  useProductStock     Boolean  @default(true)
+  publishStatus       String   @default("draft")
+  publishedAt         DateTime?
+  unpublishedAt       DateTime?
+  archivedAt          DateTime?
+  lastSyncAt          DateTime?
+  batchRequestId      String?
+  lastErrorMessage    String?
+  mainImageUrl        String?
+  imageUrls           Json?
+
+  attributes ProductMarketplaceAttribute[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([productId, platform])
+  @@index([userId, platform, publishStatus])
+  @@index([storeId, platform, publishStatus])
+}
+
+model ProductMarketplaceAttribute {
+  id                String   @id @default(uuid()) @db.Uuid
+  mappingId         String   @db.Uuid
+  mapping           ProductMarketplaceMapping @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  storeId           String   @db.Uuid
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  attributeId       Int
+  attributeName     String
+  attributeValueId  Int?
+  customValue       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([mappingId, attributeId])
+  @@index([storeId, mappingId])
+}

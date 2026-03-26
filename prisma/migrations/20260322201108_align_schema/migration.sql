@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "ImportRowMarketplaceSuggestedAttribute_suggestionId_attributeId" RENAME TO "ImportRowMarketplaceSuggestedAttribute_suggestionId_attribu_idx";
