@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/secretCrypto";
 import { testTrendyolPartnerConnection } from "@/lib/trendyolPartnerApi";
 import { createActivityLog } from "@/lib/activityLog";
+import { requireActiveStore } from "@/lib/requireActiveStore";
 
 function resolveClientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for");
@@ -35,13 +35,13 @@ function resolveAgentName(sessionEmail: string | null | undefined): string {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user || !(session.user as any).id) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: any) {
+    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
-
-  const userId = (session.user as any).id as string;
-  const userEmail = session.user?.email;
 
   try {
     const anyPrisma = prisma as any;
@@ -60,8 +60,8 @@ export async function POST(request: Request) {
 
     const row = await anyPrisma.marketplaceConnection.findUnique({
       where: {
-        userId_platform: {
-          userId,
+        storeId_platform: {
+          storeId: ctx.storeId,
           platform: "trendyol"
         }
       }
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
         : "production";
 
     const clientIp = resolveClientIp(request);
-    const agentName = resolveAgentName(userEmail);
+    const agentName = resolveAgentName(null);
 
     const result = await testTrendyolPartnerConnection({
       sellerId: row.sellerId,
@@ -121,7 +121,9 @@ export async function POST(request: Request) {
     });
 
     await createActivityLog({
-      userId,
+      userId: ctx.userId,
+      storeId: ctx.storeId,
+      membershipId: ctx.membershipId,
       action: "TRENDYOL_CONNECTION_TESTED",
       entityType: "MARKETPLACE_CONNECTION",
       entityId: row.id,

@@ -39,6 +39,29 @@ type ProblematicProduct = {
   issueCount: number;
 };
 
+type OrdersDashboardStats = {
+  todayOrderCount: number;
+  todayRevenue: number;
+  pendingOrderCount: number;
+  last7Days: Array<{ day: string; count: number }>;
+  topProducts: Array<{
+    stockCode: string | null;
+    productName: string | null;
+    quantity: number;
+  }>;
+  recentOrders: Array<{
+    id: string;
+    orderNumber: string;
+    shipmentPackageId: string;
+    packageStatus: string | null;
+    totalPrice: number | null;
+    currency: string;
+    orderDate: Date;
+    customerFirstName: string | null;
+    customerLastName: string | null;
+  }>;
+};
+
 async function getDashboardData(userId: string, storeId: string) {
   const products = await prisma.product.findMany({
     where: { userId, storeId },
@@ -120,6 +143,90 @@ async function getRecentActivity(userId: string, storeId: string): Promise<Activ
   }));
 }
 
+async function getOrdersDashboardData(storeId: string): Promise<OrdersDashboardStats> {
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(now);
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const pendingStatuses = ["Created", "Picking", "Invoiced"];
+
+  const [todayAgg, pendingOrderCount, topProductsRaw, recentOrders, last7Raw] =
+    await Promise.all([
+      prisma.marketplaceOrder.aggregate({
+        where: {
+          storeId,
+          orderDate: { gte: todayStart, lte: todayEnd }
+        },
+        _count: { _all: true },
+        _sum: { totalPrice: true }
+      }),
+      prisma.marketplaceOrder.count({
+        where: {
+          storeId,
+          packageStatus: { in: pendingStatuses }
+        }
+      }),
+      prisma.marketplaceOrderLine.groupBy({
+        by: ["stockCode", "productName"],
+        where: { storeId },
+        _sum: { quantity: true },
+        orderBy: { _sum: { quantity: "desc" } },
+        take: 5
+      }),
+      prisma.marketplaceOrder.findMany({
+        where: { storeId },
+        orderBy: { orderDate: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          orderNumber: true,
+          shipmentPackageId: true,
+          packageStatus: true,
+          totalPrice: true,
+          currency: true,
+          orderDate: true,
+          customerFirstName: true,
+          customerLastName: true
+        }
+      }),
+      prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
+        SELECT d.day::date AS day,
+               COALESCE(COUNT(o.id), 0)::bigint AS count
+        FROM generate_series(
+          date_trunc('day', NOW()) - interval '6 day',
+          date_trunc('day', NOW()),
+          interval '1 day'
+        ) AS d(day)
+        LEFT JOIN "MarketplaceOrder" o
+          ON o."storeId" = CAST(${storeId} AS uuid)
+         AND date_trunc('day', o."orderDate") = d.day
+        GROUP BY d.day
+        ORDER BY d.day ASC
+      `
+    ]);
+
+  return {
+    todayOrderCount: todayAgg._count._all ?? 0,
+    todayRevenue: Number(todayAgg._sum.totalPrice ?? 0),
+    pendingOrderCount,
+    last7Days: last7Raw.map((r) => ({
+      day: new Date(r.day).toLocaleDateString("tr-TR", {
+        day: "2-digit",
+        month: "2-digit"
+      }),
+      count: Number(r.count)
+    })),
+    topProducts: topProductsRaw.map((r) => ({
+      stockCode: r.stockCode,
+      productName: r.productName,
+      quantity: r._sum.quantity ?? 0
+    })),
+    recentOrders
+  };
+}
+
 const STATUS_COLORS: Record<string, string> = {
   published: "bg-emerald-600",
   draft: "bg-slate-600",
@@ -149,10 +256,16 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
-  const [{ stats, problematicProducts, demoProductCount }, recentActivity, onboarding] = await Promise.all([
+  const [
+    { stats, problematicProducts, demoProductCount },
+    recentActivity,
+    onboarding,
+    ordersStats
+  ] = await Promise.all([
     getDashboardData(userId, storeId),
     getRecentActivity(userId, storeId),
-    getOnboardingStatus({ userId, storeId })
+    getOnboardingStatus({ userId, storeId }),
+    getOrdersDashboardData(storeId)
   ]);
 
   return (
@@ -163,6 +276,129 @@ export default async function DashboardPage() {
         <p className="mt-1 text-sm text-slate-400">
           E-ticaret performansınızı ve ürün durumunuzu buradan izleyin.
         </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="card">
+          <div className="text-xs text-slate-400">Bugünkü Sipariş</div>
+          <div className="mt-2 text-3xl font-bold text-slate-100">
+            {ordersStats.todayOrderCount}
+          </div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-slate-400">Bugünkü Ciro</div>
+          <div className="mt-2 text-3xl font-bold text-slate-100">
+            ₺{ordersStats.todayRevenue.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}
+          </div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-slate-400">Bekleyen Sipariş</div>
+          <div className="mt-2 text-3xl font-bold text-amber-300">
+            {ordersStats.pendingOrderCount}
+          </div>
+          <div className="mt-1 text-xs text-slate-500">Created / Picking / Invoiced</div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-slate-400">Son 7 Gün Toplam Sipariş</div>
+          <div className="mt-2 text-3xl font-bold text-slate-100">
+            {ordersStats.last7Days.reduce((acc, d) => acc + d.count, 0)}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="card lg:col-span-2">
+          <div className="mb-4 border-b border-slate-700 pb-2">
+            <h2 className="text-sm font-semibold text-slate-100">Son 7 Gün Sipariş Grafiği</h2>
+          </div>
+          <div className="flex h-48 items-end gap-2">
+            {ordersStats.last7Days.map((d) => {
+              const max = Math.max(...ordersStats.last7Days.map((x) => x.count), 1);
+              const h = Math.max(6, Math.round((d.count / max) * 150));
+              return (
+                <div key={d.day} className="flex flex-1 flex-col items-center gap-2">
+                  <div className="text-xs text-slate-400">{d.count}</div>
+                  <div
+                    className="w-full rounded-t bg-indigo-500/80"
+                    style={{ height: `${h}px` }}
+                  />
+                  <div className="text-[11px] text-slate-500">{d.day}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="card">
+          <div className="mb-4 border-b border-slate-700 pb-2">
+            <h2 className="text-sm font-semibold text-slate-100">En Çok Satan 5 Ürün</h2>
+          </div>
+          {ordersStats.topProducts.length === 0 ? (
+            <p className="text-sm text-slate-500">Henüz sipariş satırı yok.</p>
+          ) : (
+            <ul className="space-y-2">
+              {ordersStats.topProducts.map((p, idx) => (
+                <li key={`${p.stockCode ?? "na"}-${idx}`} className="rounded-lg bg-slate-800/50 p-2">
+                  <div className="text-sm text-slate-200 truncate">
+                    {p.productName || p.stockCode || "İsimsiz ürün"}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {p.stockCode ? `SKU: ${p.stockCode} · ` : ""}{p.quantity} adet
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="card overflow-x-auto">
+        <div className="mb-4 border-b border-slate-700 pb-2">
+          <h2 className="text-sm font-semibold text-slate-100">Son Siparişler</h2>
+        </div>
+        <table className="min-w-full text-sm">
+          <thead className="text-left text-xs text-slate-400">
+            <tr>
+              <th className="py-2 pr-2">Sipariş No</th>
+              <th className="py-2 pr-2">Paket ID</th>
+              <th className="py-2 pr-2">Müşteri</th>
+              <th className="py-2 pr-2">Durum</th>
+              <th className="py-2 pr-2">Tutar</th>
+              <th className="py-2 pr-2">Tarih</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {ordersStats.recentOrders.map((o) => (
+              <tr key={o.id}>
+                <td className="py-2 pr-2 text-slate-200">{o.orderNumber}</td>
+                <td className="py-2 pr-2 font-mono text-xs text-slate-400">{o.shipmentPackageId}</td>
+                <td className="py-2 pr-2 text-slate-300">
+                  {[o.customerFirstName, o.customerLastName].filter(Boolean).join(" ") || "—"}
+                </td>
+                <td className="py-2 pr-2 text-slate-300">{o.packageStatus ?? "—"}</td>
+                <td className="py-2 pr-2 text-slate-200">
+                  {o.totalPrice != null
+                    ? `${o.totalPrice.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} ${o.currency}`
+                    : "—"}
+                </td>
+                <td className="py-2 pr-2 text-slate-400">
+                  {o.orderDate.toLocaleString("tr-TR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  })}
+                </td>
+              </tr>
+            ))}
+            {ordersStats.recentOrders.length === 0 && (
+              <tr>
+                <td colSpan={6} className="py-6 text-center text-slate-500">
+                  Son sipariş kaydı yok.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Onboarding Kartı */}
