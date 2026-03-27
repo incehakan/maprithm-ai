@@ -14,6 +14,7 @@ model User {
   password  String
   name      String?
   isActive  Boolean  @default(true)
+  isSystemAdmin Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -26,6 +27,7 @@ model User {
   importJobs                  ImportJob[]
   xmlFeedSources              XmlFeedSource[]
   trendyolPublishJobs         TrendyolPublishJob[]
+  systemReferenceSyncLogs     SystemReferenceSyncLog[]
 
   // Store memberships
   storeMemberships            StoreMembership[]
@@ -406,6 +408,37 @@ model MarketplaceConnection {
   @@index([storeId, platform])
 }
 
+model SystemMarketplaceConnection {
+  id                 String   @id @default(uuid()) @db.Uuid
+  platform           String   @unique
+  sellerId           String
+  apiKeyEncrypted    String
+  apiSecretEncrypted String
+  userAgent          String
+  environment        String   @default("production")
+  isActive           Boolean  @default(true)
+  lastSyncAt         DateTime?
+  lastSyncStatus     String?
+  lastSyncMessage    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model SystemReferenceSyncLog {
+  id               String   @id @default(uuid()) @db.Uuid
+  action           String
+  status           String
+  summary          Json?
+  message          String?
+  triggeredByUserId String? @db.Uuid
+  triggeredByUser   User?   @relation(fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([action, createdAt])
+  @@index([status, createdAt])
+}
+
 model MarketplaceOrder {
   id                  String    @id @default(uuid()) @db.Uuid
   storeId             String    @db.Uuid
@@ -482,6 +515,7 @@ model TrendyolBrand {
   brandId      Int       @unique
   name         String
   isActive     Boolean?
+  removedAt    DateTime?
   rawData      Json?
   lastSyncedAt DateTime?
   createdAt    DateTime  @default(now())
@@ -495,6 +529,7 @@ model TrendyolCategory {
   parentCategoryId Int?
   isLeaf           Boolean   @default(false)
   isActive         Boolean?
+  removedAt        DateTime?
   rawData          Json?
   lastSyncedAt     DateTime?
   createdAt        DateTime  @default(now())
@@ -509,6 +544,7 @@ model TrendyolCategoryAttribute {
   isRequired     Boolean   @default(false)
   isVariantable  Boolean   @default(false)
   allowCustom    Boolean   @default(false)
+  removedAt      DateTime?
   rawData        Json?
   lastSyncedAt   DateTime?
 
@@ -527,6 +563,7 @@ model TrendyolCategoryAttributeValue {
 
   attributeValueId Int
   attributeValue   String
+  removedAt        DateTime?
   rawData          Json?
 
   createdAt DateTime @default(now())

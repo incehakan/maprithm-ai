@@ -65,6 +65,12 @@ export const { auth, signIn, signOut, handlers } = NextAuth({
       // (Seed / rol değişince eski JWT'de kalan izinler güncellenmezdi; örn. products.view kayboluyordu.)
       if (token.userId) {
         try {
+          const userRow = await prisma.user.findUnique({
+            where: { id: String(token.userId) },
+            select: { isSystemAdmin: true }
+          });
+          token.isSystemAdmin = Boolean(userRow?.isSystemAdmin);
+
           const ctx = await resolveActiveStoreContextForUser({
             userId: String(token.userId),
             preferredStoreId: token.activeStoreId
@@ -84,6 +90,7 @@ export const { auth, signIn, signOut, handlers } = NextAuth({
           }
         } catch (err) {
           console.error("auth.jwt active store resolve failed", err);
+          token.isSystemAdmin = false;
           token.activeStoreId = null;
           token.membershipId = null;
           token.roleKey = null;
@@ -102,6 +109,7 @@ export const { auth, signIn, signOut, handlers } = NextAuth({
       (session as any).membershipId = token.membershipId ?? null;
       (session as any).roleKey = token.roleKey ?? null;
       (session as any).permissionKeys = token.permissionKeys ?? [];
+      (session as any).isSystemAdmin = Boolean(token.isSystemAdmin);
 
       return session;
     }

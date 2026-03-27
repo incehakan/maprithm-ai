@@ -20,22 +20,20 @@ type ConnectionView = {
 
 type AddressOption = { id: string; label: string };
 
+type GlobalReferenceStatus = {
+  isActive: boolean;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncMessage: string | null;
+  updatedAt: string;
+};
+
 function TrendyolSettingsPageContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [syncingBrands, setSyncingBrands] = useState(false);
-  const [syncingCategories, setSyncingCategories] = useState(false);
-  const [syncingCategoryAttrs, setSyncingCategoryAttrs] = useState(false);
-  const [attrCategoryIdInput, setAttrCategoryIdInput] = useState("");
-  const [lastAttrSync, setLastAttrSync] = useState<{
-    attributeCount: number;
-    valueCount: number;
-    mode?: "single" | "allLeaf";
-    categoriesProcessed?: number;
-    categoriesFailed?: number;
-  } | null>(null);
   const [connection, setConnection] = useState<ConnectionView | null>(null);
+  const [globalStatus, setGlobalStatus] = useState<GlobalReferenceStatus | null>(null);
 
   const [addressOptions, setAddressOptions] = useState<AddressOption[]>([]);
   const [fetchingAddresses, setFetchingAddresses] = useState(false);
@@ -59,21 +57,27 @@ function TrendyolSettingsPageContent() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch("/api/integrations/trendyol/connection");
-        const data = await res.json();
-        if (data.connection) {
-          setConnection(data.connection);
-          setSellerId(data.connection.sellerId || "");
-          setUserAgent(data.connection.userAgent || "");
+        const [connRes, statusRes] = await Promise.all([
+          fetch("/api/integrations/trendyol/connection"),
+          fetch("/api/integrations/trendyol/reference-sync-status")
+        ]);
+        const connData = await connRes.json();
+        const statusData = await statusRes.json();
+
+        if (connData.connection) {
+          setConnection(connData.connection);
+          setSellerId(connData.connection.sellerId || "");
+          setUserAgent(connData.connection.userAgent || "");
           setEnvironment(
-            data.connection.environment === "stage" ? "stage" : "production"
+            connData.connection.environment === "stage" ? "stage" : "production"
           );
-          setIsActive(data.connection.isActive !== false);
+          setIsActive(connData.connection.isActive !== false);
           setShipmentAddressId(
-            data.connection.shipmentAddressId?.trim() || ""
+            connData.connection.shipmentAddressId?.trim() || ""
           );
-          setReturnAddressId(data.connection.returnAddressId?.trim() || "");
+          setReturnAddressId(connData.connection.returnAddressId?.trim() || "");
         }
+        setGlobalStatus(statusData?.status ?? null);
       } catch (e) {
         console.error(e);
       } finally {
@@ -210,154 +214,6 @@ function TrendyolSettingsPageContent() {
       });
     } finally {
       setTesting(false);
-    }
-  }
-
-  async function handleSyncBrands() {
-    setSyncingBrands(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/integrations/trendyol/sync-brands", {
-        method: "POST"
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Markalar çekilemedi.");
-      }
-      setMessage({
-        type: "success",
-        text: data.message || `${data.count ?? 0} marka senkronize edildi.`
-      });
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text: err instanceof Error ? err.message : "Markalar çekilirken hata oluştu."
-      });
-    } finally {
-      setSyncingBrands(false);
-    }
-  }
-
-  async function handleSyncCategories() {
-    setSyncingCategories(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/integrations/trendyol/sync-categories", {
-        method: "POST"
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Kategoriler çekilemedi.");
-      }
-      setMessage({
-        type: "success",
-        text: data.message || `${data.count ?? 0} kategori senkronize edildi.`
-      });
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text: err instanceof Error ? err.message : "Kategoriler çekilirken hata oluştu."
-      });
-    } finally {
-      setSyncingCategories(false);
-    }
-  }
-
-  async function handleSyncCategoryAttributes() {
-    const parsed = parseInt(attrCategoryIdInput.trim(), 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      setMessage({
-        type: "error",
-        text: "Geçerli bir kategori ID girin (pozitif tam sayı)."
-      });
-      return;
-    }
-
-    setSyncingCategoryAttrs(true);
-    setMessage(null);
-    setLastAttrSync(null);
-    try {
-      const res = await fetch(
-        "/api/integrations/trendyol/sync-category-attributes",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ categoryId: parsed })
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Kategori özellikleri çekilemedi.");
-      }
-      setLastAttrSync({
-        attributeCount: data.attributeCount ?? 0,
-        valueCount: data.valueCount ?? 0,
-        mode: data.mode === "allLeaf" ? "allLeaf" : "single",
-        categoriesProcessed: data.categoriesProcessed,
-        categoriesFailed: data.categoriesFailed
-      });
-      setMessage({
-        type: "success",
-        text:
-          data.message ||
-          `${data.attributeCount ?? 0} özellik, ${data.valueCount ?? 0} değer senkronize edildi.`
-      });
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text:
-          err instanceof Error
-            ? err.message
-            : "Kategori özellikleri çekilirken hata oluştu."
-      });
-    } finally {
-      setSyncingCategoryAttrs(false);
-    }
-  }
-
-  async function handleSyncAllLeafCategoryAttributes() {
-    const ok = window.confirm(
-      "Veritabanındaki tüm yaprak kategoriler için Trendyol API çağrılacak. Kategori sayısı fazlaysa işlem uzun sürebilir ve rate limit riski vardır. Devam edilsin mi?"
-    );
-    if (!ok) return;
-
-    setSyncingCategoryAttrs(true);
-    setMessage(null);
-    setLastAttrSync(null);
-    try {
-      const res = await fetch(
-        "/api/integrations/trendyol/sync-category-attributes",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ syncAllLeafCategories: true })
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Toplu özellik senkronu başarısız.");
-      }
-      setLastAttrSync({
-        attributeCount: data.attributeCount ?? 0,
-        valueCount: data.valueCount ?? 0,
-        mode: "allLeaf",
-        categoriesProcessed: data.categoriesProcessed,
-        categoriesFailed: data.categoriesFailed
-      });
-      setMessage({
-        type: "success",
-        text: data.message || "Toplu kategori özellikleri senkronize edildi."
-      });
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text:
-          err instanceof Error
-            ? err.message
-            : "Toplu senkron sırasında hata oluştu."
-      });
-    } finally {
-      setSyncingCategoryAttrs(false);
     }
   }
 
@@ -620,132 +476,49 @@ function TrendyolSettingsPageContent() {
 
       <div className="card space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
-          Marka ve Kategori Senkronizasyonu
+          Global Referans Veri Durumu
         </h2>
         <p className="text-xs text-slate-400">
-          Trendyol API&apos;den marka ve kategori listesini çekip veritabanına
-          kaydedin. Ürün oluştururken bu veriler kullanılabilir. API&apos;de
-          pasif olarak işaretlenen kayıtlar <code className="text-slate-300">isActive=false</code>{" "}
-          ile saklanır; liste ve dropdown sorgularında varsayılan olarak sadece{" "}
-          <code className="text-slate-300">isActive</code> değeri{" "}
-          <code className="text-slate-300">true</code> veya{" "}
-          <code className="text-slate-300">null</code> olanlar kullanılmalıdır (
-          <code className="text-xs text-indigo-300">trendyolBrandListableWhere</code> /{" "}
-          <code className="text-xs text-indigo-300">trendyolCategoryListableWhere</code>
-          ).
+          Trendyol marka/kategori/yaprak/özellik verileri artık mağazaya özel
+          çekilmez. Sistem genelinde tek kopya tutulur ve otomatik cron ile
+          güncellenir.
         </p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={handleSyncBrands}
-            disabled={syncingBrands || !connection}
-            className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              !connection
-                ? "Önce bağlantı ayarlarını kaydedin"
-                : "Trendyol'dan marka listesini çek"
-            }
-          >
-            {syncingBrands ? "Çekiliyor..." : "Markaları Çek"}
-          </button>
-          <button
-            type="button"
-            onClick={handleSyncCategories}
-            disabled={syncingCategories || !connection}
-            className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              !connection
-                ? "Önce bağlantı ayarlarını kaydedin"
-                : "Trendyol'dan kategori listesini çek"
-            }
-          >
-            {syncingCategories ? "Çekiliyor..." : "Kategorileri Çek"}
-          </button>
-        </div>
-      </div>
-
-      <div className="card space-y-4">
-        <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
-          Kategori özellikleri (attributes)
-        </h2>
-        <p className="text-xs text-slate-400">
-          Trendyol API&apos;de tüm kategorilerin özelliklerini tek istekte veren bir
-          uç yok; her yaprak kategori için ayrı URL çağrılır. İsterseniz tek{" "}
-          <code className="text-slate-300">categoryId</code> girerek deneyebilir
-          veya önce{" "}
-          <strong className="text-slate-300">Kategorileri Çek</strong> sonrası
-          veritabanındaki tüm yapraklar için toplu senkron başlatabilirsiniz.
-        </p>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <label className="label">Kategori ID (tek kategori)</label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={attrCategoryIdInput}
-              onChange={(e) => setAttrCategoryIdInput(e.target.value)}
-              className="input"
-              placeholder="Örn: 411"
-              disabled={!connection}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={handleSyncCategoryAttributes}
-            disabled={syncingCategoryAttrs || !connection}
-            className="btn-secondary shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={
-              !connection
-                ? "Önce bağlantı ayarlarını kaydedin"
-                : "Seçilen kategori için özellik listesini çek"
-            }
-          >
-            {syncingCategoryAttrs ? "Çekiliyor..." : "Kategori Özelliklerini Çek"}
-          </button>
-        </div>
-        <div className="border-t border-slate-700 pt-3">
-          <button
-            type="button"
-            onClick={handleSyncAllLeafCategoryAttributes}
-            disabled={syncingCategoryAttrs || !connection}
-            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            title="DB'deki yaprak kategoriler için sırayla API çağrısı (uzun sürebilir)"
-          >
-            {syncingCategoryAttrs
-              ? "İşleniyor..."
-              : "Tüm yaprak kategoriler için özellikleri çek"}
-          </button>
-          <p className="mt-2 text-xs text-amber-500/90">
-            Çok sayıda yaprak kategori varsa işlem dakikalar sürebilir. İstekler
-            arasında kısa gecikme vardır (rate limit).
-          </p>
-        </div>
-        {lastAttrSync !== null && (
-          <div className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs text-slate-300">
-            <span className="text-slate-400">Son senkron: </span>
-            {lastAttrSync.mode === "allLeaf" &&
-              lastAttrSync.categoriesProcessed != null && (
-                <>
-                  <strong>{lastAttrSync.categoriesProcessed}</strong> yaprak kategori
-                  işlendi
-                  {lastAttrSync.categoriesFailed != null &&
-                    lastAttrSync.categoriesFailed > 0 && (
-                      <>
-                        {" "}
-                        (<span className="text-amber-400">
-                          {lastAttrSync.categoriesFailed} hata
-                        </span>
-                        )
-                      </>
-                    )}
-                  ,{" "}
-                </>
+        <ul className="list-disc space-y-1 pl-4 text-xs text-slate-400">
+          <li>Markaları Çek / Kategorileri Çek / Yaprakları Çek / Özellikleri Çek kaldırıldı.</li>
+          <li>Cron endpoint: <code className="text-slate-300">GET /api/cron/trendyol-reference-sync</code></li>
+          <li>Ürün eşleştirme dropdownları global referans tablolarını kullanır.</li>
+        </ul>
+        <div className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs text-slate-300">
+          {globalStatus ? (
+            <>
+              <div>
+                Sistem bağlantısı:{" "}
+                <strong className={globalStatus.isActive ? "text-emerald-400" : "text-amber-400"}>
+                  {globalStatus.isActive ? "Aktif" : "Pasif"}
+                </strong>
+              </div>
+              <div>
+                Son global senkron:{" "}
+                <strong>
+                  {globalStatus.lastSyncAt
+                    ? new Date(globalStatus.lastSyncAt).toLocaleString("tr-TR")
+                    : "—"}
+                </strong>
+              </div>
+              <div>
+                Sonuç:{" "}
+                <strong className="text-slate-200">{globalStatus.lastSyncStatus ?? "—"}</strong>
+              </div>
+              {globalStatus.lastSyncMessage && (
+                <div className="mt-1 text-slate-400">{globalStatus.lastSyncMessage}</div>
               )}
-            <strong>{lastAttrSync.attributeCount}</strong> özellik,{" "}
-            <strong>{lastAttrSync.valueCount}</strong> değer
-          </div>
-        )}
+            </>
+          ) : (
+            <div className="text-amber-300">
+              SystemMarketplaceConnection bulunamadı. Global referans sync için sistem bağlantısı tanımlayın.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

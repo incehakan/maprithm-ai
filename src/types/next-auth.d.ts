@@ -6,6 +6,7 @@ declare module "next-auth" {
     membershipId?: string | null;
     roleKey?: string | null;
     permissionKeys?: string[];
+    isSystemAdmin?: boolean;
     user?: DefaultSession["user"] & {
       id?: string;
     };
@@ -19,5 +20,6 @@ declare module "next-auth/jwt" {
     membershipId?: string | null;
     roleKey?: string | null;
     permissionKeys?: string[];
+    isSystemAdmin?: boolean;
   }
 }

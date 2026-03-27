@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createActivityLog } from "@/lib/activityLog";
 import {
-  syncTrendyolCategoryAttributesForCategory,
-  syncTrendyolCategoryAttributesForAllLeafCategories
+  syncTrendyolCategoryAttributesForCategorySystem,
+  syncTrendyolCategoryAttributesForAllLeafCategoriesSystem
 } from "@/lib/trendyolSyncCategoryAttributes";
 import { requireActiveStore } from "@/lib/requireActiveStore";
+import { requireSystemAdmin } from "@/lib/requireSystemAdmin";
 
 type Body = {
   categoryId?: unknown;
@@ -12,6 +13,12 @@ type Body = {
 };
 
 export async function POST(request: Request) {
+  try {
+    await requireSystemAdmin();
+  } catch {
+    return NextResponse.json({ error: "Bu işlem sadece sistem yöneticisi içindir." }, { status: 403 });
+  }
+
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
   try {
     ctx = await requireActiveStore();
@@ -33,10 +40,7 @@ export async function POST(request: Request) {
 
   if (syncAll) {
     try {
-      const bulk = await syncTrendyolCategoryAttributesForAllLeafCategories(
-        ctx.userId,
-        ctx.storeId
-      );
+      const bulk = await syncTrendyolCategoryAttributesForAllLeafCategoriesSystem();
 
       if (!bulk.success) {
         return NextResponse.json(
@@ -104,9 +108,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const one = await syncTrendyolCategoryAttributesForCategory(
-      ctx.userId,
-      ctx.storeId,
+    const one = await syncTrendyolCategoryAttributesForCategorySystem(
       categoryId
     );
 

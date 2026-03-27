@@ -34,6 +34,7 @@ const navItems: NavItem[] = [
 export async function Sidebar() {
   const session = await auth();
   const permissionKeys = session?.permissionKeys ?? [];
+  const isSystemAdmin = Boolean((session as any)?.isSystemAdmin);
   const canManageUsers = hasPermission(permissionKeys, "store.users.manage");
   const canManageRbac = hasPermission(permissionKeys, "store.rbac.manage");
 
@@ -48,6 +49,12 @@ export async function Sidebar() {
       : []),
     ...(canManageUsers
       ? [{ href: "/store/users", label: "Mağaza Kullanıcıları" as const }]
+      : []),
+    ...(isSystemAdmin
+      ? [
+          { href: "/admin/system-connections", label: "Sistem Bağlantıları" as const },
+          { href: "/admin/reference-sync", label: "Referans Sync Yönetimi" as const }
+        ]
       : [])
   ];
 
