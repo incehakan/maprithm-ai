@@ -5,12 +5,21 @@ import { prisma } from "@/lib/prisma";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import { hasPermission } from "@/lib/activeStore";
 import { OrdersTrendyolSyncButton } from "@/components/orders/OrdersTrendyolSyncButton";
+import { OrderSyncStatusPanel } from "@/components/orders/OrderSyncStatusPanel";
+import { resolveCargoProviderDisplay } from "@/lib/trendyolTracking";
 
 type SearchParams = {
   status?: string;
   q?: string;
   from?: string;
   to?: string;
+};
+
+type OrderListCargoRow = {
+  packageStatus: string | null;
+  cargoStatusText: string | null;
+  cargoLastEventMessage: string | null;
+  cargoTrackingNumber: string | null;
 };
 
 function formatMoney(n: number | null | undefined, cur: string) {
@@ -45,9 +54,29 @@ function packageStatusTR(v: string | null | undefined) {
   return PACKAGE_STATUS_TR[v] ?? v;
 }
 
+function cargoRowSummary(o: OrderListCargoRow): string {
+  if (o.cargoStatusText?.trim()) return o.cargoStatusText.trim();
+  if (o.cargoLastEventMessage?.trim()) return o.cargoLastEventMessage.trim();
+  if (o.cargoTrackingNumber?.trim()) return "Takip numarası mevcut";
+  if (o.packageStatus === "Shipped" || o.packageStatus === "Delivered")
+    return "Kargo aşamasında";
+  return "—";
+}
+
+function formatTrackingCell(t: string | null | undefined) {
+  if (!t?.trim()) return "—";
+  const s = t.trim();
+  if (s.length <= 22) return s;
+  return `${s.slice(0, 12)}…${s.slice(-6)}`;
+}
+
 function ingestSourceLabel(v: string | null | undefined) {
   if (v === "manual_sync") return "Manuel senkron";
   if (v === "webhook") return "Webhook";
+  if (v === "operation") return "Operasyon (panel)";
+  if (v === "split") return "Split paket";
+  if (v === "cron_sync") return "Zamanlanmış senkron";
+  if (v === "reconcile") return "Uzlaştırma";
   if (!v) return "—";
   return v;
 }
@@ -82,23 +111,6 @@ export default async function OrdersPage({
   }
 
   const canManageOrders = hasPermission(ctx.permissionKeys, "orders.manage");
-  const anyPrisma = prisma as unknown as {
-    marketplaceOrder?: {
-      findMany: (...args: unknown[]) => Promise<unknown[]>;
-    };
-  };
-  if (!anyPrisma.marketplaceOrder) {
-    return (
-      <div className="rounded-lg border border-amber-700/40 bg-amber-500/10 p-6 text-amber-100">
-        <p className="font-medium">Sipariş modeli henüz aktif değil</p>
-        <p className="mt-1 text-sm text-amber-200/90">
-          Prisma client eski olabilir. Sunucuyu yeniden başlatıp `npx prisma generate`
-          komutunu tekrar çalıştırın.
-        </p>
-      </div>
-    );
-  }
-
   const where: Prisma.MarketplaceOrderWhereInput = { storeId: ctx.storeId };
   if (searchParams.status?.trim()) {
     where.packageStatus = searchParams.status.trim();
@@ -125,25 +137,72 @@ export default async function OrdersPage({
     where.orderDate = orderDate;
   }
 
-  const orders = await anyPrisma.marketplaceOrder.findMany({
+  const [orders, syncState, runningJob, latestFailedJob, recentSyncJobs] = await Promise.all([
+    prisma.marketplaceOrder.findMany({
     where,
     orderBy: { orderDate: "desc" },
-    take: 200
-  }) as Array<{
-    id: string;
-    orderNumber: string;
-    shipmentPackageId: string;
-    packageStatus: string | null;
-    customerFirstName: string | null;
-    customerLastName: string | null;
-    totalPrice: number | null;
-    currency: string;
-    orderDate: Date;
-    cargoTrackingNumber: string | null;
-    platform: string;
-    lastFetchedAt: Date | null;
-    lastIngestSource: string | null;
-  }>;
+    take: 200,
+    select: {
+      id: true,
+      orderNumber: true,
+      shipmentPackageId: true,
+      packageStatus: true,
+      cargoTrackingNumber: true,
+      cargoProviderName: true,
+      cargoProviderCode: true,
+      cargoStatusText: true,
+      cargoLastEventAt: true,
+      cargoLastEventMessage: true,
+      customerFirstName: true,
+      customerLastName: true,
+      totalPrice: true,
+      currency: true,
+      orderDate: true,
+      platform: true,
+      lastFetchedAt: true,
+      lastIngestSource: true,
+      cargoLabelUrl: true,
+      shippingOperationStatus: true,
+      cargoSenderNumber: true
+    }
+    }),
+    prisma.storeOrderSyncState.findUnique({
+      where: {
+        storeId_platform: { storeId: ctx.storeId, platform: "trendyol" }
+      }
+    }),
+    prisma.orderSyncJob.findFirst({
+      where: {
+        storeId: ctx.storeId,
+        platform: "trendyol",
+        status: "running"
+      },
+      select: { id: true, syncType: true, startedAt: true }
+    }),
+    prisma.orderSyncJob.findFirst({
+      where: {
+        storeId: ctx.storeId,
+        platform: "trendyol",
+        status: "failed"
+      },
+      orderBy: { finishedAt: "desc" },
+      select: { id: true, finishedAt: true, errorMessage: true }
+    }),
+    prisma.orderSyncJob.findMany({
+      where: { storeId: ctx.storeId, platform: "trendyol" },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        syncType: true,
+        status: true,
+        finishedAt: true,
+        packagesFetchedCount: true,
+        failedCount: true,
+        createdAt: true
+      }
+    })
+  ]);
 
   const statusFilter = searchParams.status?.trim();
 
@@ -161,6 +220,13 @@ export default async function OrdersPage({
           <OrdersTrendyolSyncButton statusFilter={statusFilter} />
         )}
       </div>
+
+      <OrderSyncStatusPanel
+        syncState={syncState}
+        running={runningJob}
+        latestFailed={latestFailedJob}
+        recentJobs={recentSyncJobs}
+      />
 
       <div className="card">
         <form className="grid gap-3 md:grid-cols-12" method="get" action="/orders">
@@ -241,13 +307,17 @@ export default async function OrdersPage({
             <tr>
               <th className="py-2 pr-2">Sipariş no</th>
               <th className="py-2 pr-2">Paket ID</th>
-              <th className="py-2 pr-2">Durum</th>
+              <th className="py-2 pr-2">Paket durumu</th>
+              <th className="py-2 pr-2">Kargo durumu</th>
+              <th className="py-2 pr-2">Takip no</th>
+              <th className="py-2 pr-2">Taşıyıcı</th>
               <th className="py-2 pr-2">Müşteri</th>
               <th className="py-2 pr-2">Toplam</th>
               <th className="py-2 pr-2">Tarih</th>
               <th className="py-2 pr-2">Son güncelleme</th>
               <th className="py-2 pr-2">Kaynak</th>
-              <th className="py-2 pr-2">Kargo takip</th>
+              <th className="py-2 pr-2">Etiket</th>
+              <th className="py-2 pr-2">Kargo işl.</th>
               <th className="py-2 pr-2">Platform</th>
               <th className="py-2 text-right">Detay</th>
             </tr>
@@ -266,6 +336,18 @@ export default async function OrdersPage({
                   <td className="py-2 pr-2 text-slate-300">
                     {packageStatusTR(o.packageStatus)}
                   </td>
+                  <td className="py-2 pr-2 max-w-[10rem] truncate text-xs text-slate-300" title={cargoRowSummary(o)}>
+                    {cargoRowSummary(o)}
+                  </td>
+                  <td
+                    className="py-2 pr-2 font-mono text-xs text-slate-300"
+                    title={o.cargoTrackingNumber ?? undefined}
+                  >
+                    {formatTrackingCell(o.cargoTrackingNumber)}
+                  </td>
+                  <td className="py-2 pr-2 max-w-[8rem] truncate text-xs text-slate-300" title={resolveCargoProviderDisplay(o.cargoProviderCode, o.cargoProviderName)}>
+                    {resolveCargoProviderDisplay(o.cargoProviderCode, o.cargoProviderName)}
+                  </td>
                   <td className="py-2 pr-2 text-slate-300">{customer || "—"}</td>
                   <td className="py-2 pr-2 text-slate-200">
                     {formatMoney(o.totalPrice, o.currency)}
@@ -282,7 +364,10 @@ export default async function OrdersPage({
                     {ingestSourceLabel(o.lastIngestSource)}
                   </td>
                   <td className="py-2 pr-2 text-xs text-slate-400">
-                    {o.cargoTrackingNumber ?? "—"}
+                    {o.cargoLabelUrl ? "Var" : "—"}
+                  </td>
+                  <td className="py-2 pr-2 text-xs text-slate-400">
+                    {o.shippingOperationStatus ?? "—"}
                   </td>
                   <td className="py-2 pr-2 text-slate-400">{o.platform}</td>
                   <td className="py-2 text-right">
@@ -298,7 +383,7 @@ export default async function OrdersPage({
             })}
             {orders.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-8 text-center text-slate-500">
+                <td colSpan={15} className="py-8 text-center text-slate-500">
                   Kayıt yok. Trendyol bağlantınızı kontrol edip &quot;Senkron Et&quot;
                   kullanın.
                 </td>

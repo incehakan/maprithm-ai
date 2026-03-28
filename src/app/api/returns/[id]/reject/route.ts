@@ -1,0 +1,131 @@
+import { NextResponse } from "next/server";
+import { createActivityLog } from "@/lib/activityLog";
+import { prisma } from "@/lib/prisma";
+import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import {
+  asRecord,
+  extractClaimItemIdsForReject,
+  refreshTrendyolReturnClaimInDb,
+  rejectReturnClaim
+} from "@/lib/trendyolReturns";
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch {
+    return NextResponse.json({ success: false, error: "Yetkisiz." }, { status: 401 });
+  }
+  try {
+    requirePermission(ctx, "returns.manage");
+  } catch {
+    return NextResponse.json({ success: false, error: "Erişim yok." }, { status: 403 });
+  }
+
+  const { id } = await context.params;
+  const body = (await request.json().catch(() => ({}))) as {
+    claimIssueReasonId?: string | number;
+    message?: string;
+  };
+
+  const reasonRaw = body.claimIssueReasonId;
+  const reasonNum =
+    typeof reasonRaw === "number"
+      ? reasonRaw
+      : typeof reasonRaw === "string" && reasonRaw.trim()
+        ? Number(reasonRaw.trim())
+        : NaN;
+  if (!Number.isFinite(reasonNum)) {
+    return NextResponse.json(
+      { success: false, error: "claimIssueReasonId gerekli ve sayı olmalı." },
+      { status: 400 }
+    );
+  }
+
+  const storeId = ctx.storeId;
+  const claim = await prisma.marketplaceReturnClaim.findFirst({
+    where: { id, storeId }
+  });
+  if (!claim) {
+    return NextResponse.json({ success: false, error: "Kayıt bulunamadı." }, { status: 404 });
+  }
+
+  const raw = asRecord(claim.rawData);
+  if (!raw) {
+    return NextResponse.json(
+      { success: false, error: "rawData yok; önce senkron yapın." },
+      { status: 400 }
+    );
+  }
+
+  const itemIds = extractClaimItemIdsForReject(raw);
+  if (itemIds.length === 0) {
+    return NextResponse.json(
+      { success: false, error: "Reddedilecek kalem kimliği bulunamadı; senkronu tekrarlayın." },
+      { status: 400 }
+    );
+  }
+
+  const prev = claim.claimStatus;
+  const res = await rejectReturnClaim({
+    userId: ctx.userId,
+    storeId,
+    claimId: claim.claimId,
+    claimItemIds: itemIds,
+    claimIssueReasonId: reasonNum,
+    description: body.message
+  });
+
+  if (!res.ok) {
+    await prisma.marketplaceReturnClaimEvent.create({
+      data: {
+        storeId,
+        claimRecordId: claim.id,
+        action: "RETURN_CLAIM_OPERATION_FAILED",
+        message: res.message,
+        previousStatus: prev,
+        rawData: { operation: "reject", claimIssueReasonId: reasonNum }
+      }
+    });
+    return NextResponse.json({ success: false, error: res.message }, { status: 502 });
+  }
+
+  const ref = await refreshTrendyolReturnClaimInDb({
+    userId: ctx.userId,
+    storeId,
+    trendyolClaimId: claim.claimId
+  });
+  const updated = await prisma.marketplaceReturnClaim.findFirst({
+    where: { id: claim.id, storeId },
+    select: { claimStatus: true }
+  });
+  const nextSt = updated?.claimStatus ?? prev;
+
+  await prisma.marketplaceReturnClaimEvent.create({
+    data: {
+      storeId,
+      claimRecordId: claim.id,
+      action: "RETURN_CLAIM_REJECTED",
+      message: (body.message ?? "").trim() || "İade reddedildi.",
+      previousStatus: prev,
+      nextStatus: nextSt,
+      rawData: {
+        claimIssueReasonId: reasonNum,
+        refreshOk: ref.ok,
+        refreshMessage: ref.ok ? undefined : ref.message
+      }
+    }
+  });
+
+  await createActivityLog({
+    userId: ctx.userId,
+    storeId,
+    membershipId: ctx.membershipId,
+    action: "TRENDYOL_RETURN_REJECTED",
+    entityType: "marketplace_return",
+    entityId: claim.id,
+    message: `Trendyol iade reddi: claim ${claim.claimId}`
+  });
+
+  return NextResponse.json({ success: true, claimStatus: nextSt });
+}

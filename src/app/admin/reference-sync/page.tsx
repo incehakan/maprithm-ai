@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  EmptyState,
+  PageHeader,
+  PanelSurface,
+  PremiumButton,
+  SectionHeader,
+  StatusBadge
+} from "@/components/premium/design-system";
 
 type SyncLog = {
   id: string;
@@ -65,12 +73,16 @@ export default function AdminReferenceSyncPage() {
 
   return (
     <div className="space-y-4">
-      <div className="card space-y-3">
+      <PageHeader
+        title="Reference Sync Yönetimi"
+        subtitle="Global Trendyol referans senkronunu gözlemleyin ve manuel tetikleyin."
+      />
+      <PanelSurface className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Global Referans Sync</h2>
-          <button className="btn-primary" onClick={syncNow} disabled={running}>
+          <PremiumButton onClick={syncNow} disabled={running}>
             {running ? "Çalışıyor..." : "Şimdi Senkron Et"}
-          </button>
+          </PremiumButton>
         </div>
         <p className="text-sm text-slate-400">
           Günlük cron ile otomatik çalışır. Normal mağaza kullanıcıları bu ekranı göremez.
@@ -83,7 +95,7 @@ export default function AdminReferenceSyncPage() {
         {loading ? (
           <div className="text-sm text-slate-400">Yükleniyor...</div>
         ) : status ? (
-          <div className="rounded-md border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm">
             <div>Bağlantı: {status.isActive ? "Aktif" : "Pasif"}</div>
             <div>
               Son sync:{" "}
@@ -91,19 +103,32 @@ export default function AdminReferenceSyncPage() {
                 ? new Date(status.lastSyncAt).toLocaleString("tr-TR")
                 : "—"}
             </div>
-            <div>Son sonuç: {status.lastSyncStatus ?? "—"}</div>
+            <div className="mt-1">
+              Sonuç:{" "}
+              <StatusBadge variant={status.lastSyncStatus === "success" ? "success" : status.lastSyncStatus === "failed" ? "danger" : "default"}>
+                {status.lastSyncStatus ?? "—"}
+              </StatusBadge>
+            </div>
             <div className="text-slate-400">{status.lastSyncMessage ?? "—"}</div>
           </div>
         ) : (
-          <div className="text-amber-300">Sistem bağlantısı bulunamadı.</div>
+          <EmptyState
+            title="Sistem bağlantısı bulunamadı"
+            description="Önce system connection ayarını tamamlayın."
+            ctaHref="/admin/system-connections"
+            ctaLabel="Bağlantıyı aç"
+          />
         )}
-      </div>
+      </PanelSurface>
 
-      <div className="card space-y-3">
-        <h3 className="text-sm font-semibold">Son Loglar</h3>
+      <PanelSurface className="space-y-3">
+        <SectionHeader title="Son Loglar" />
         <div className="space-y-2">
           {logs.length === 0 && (
-            <div className="text-sm text-slate-400">Kayıt bulunamadı.</div>
+            <EmptyState
+              title="Log kaydı yok"
+              description="Senkron çalıştığında burada geçmiş kayıtlar görünecek."
+            />
           )}
           {logs.map((log) => (
             <div
@@ -116,12 +141,24 @@ export default function AdminReferenceSyncPage() {
                   {new Date(log.createdAt).toLocaleString("tr-TR")}
                 </span>
               </div>
-              <div className="text-slate-300">{log.status}</div>
+              <div className="text-slate-300">
+                <StatusBadge
+                  variant={
+                    log.status === "success"
+                      ? "success"
+                      : log.status === "failed"
+                        ? "danger"
+                        : "default"
+                  }
+                >
+                  {log.status}
+                </StatusBadge>
+              </div>
               {log.message && <div className="text-slate-400">{log.message}</div>}
             </div>
           ))}
         </div>
-      </div>
+      </PanelSurface>
     </div>
   );
 }

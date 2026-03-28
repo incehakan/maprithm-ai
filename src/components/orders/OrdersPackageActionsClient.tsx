@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { safeParseJsonResponse } from "@/lib/safeParseJsonResponse";
+import { Modal } from "@/components/ui/modal";
 
 type Toast =
   | {
@@ -20,9 +21,14 @@ type Props = {
   orderId: string;
   shipmentPackageId: string;
   packageStatus: PackageStatus;
-  cargoTrackingNumber: string | null;
-  cargoProviderName: string | null;
   canManageOrders: boolean;
+  lines: Array<{
+    id: string;
+    lineId: string | null;
+    stockCode: string | null;
+    productName: string | null;
+    quantity: number;
+  }>;
 };
 
 function buildActionEndpoint(orderId: string, action: string) {
@@ -51,13 +57,18 @@ export function OrdersPackageActionsClient({
   orderId,
   shipmentPackageId,
   packageStatus,
-  cargoTrackingNumber,
-  cargoProviderName,
-  canManageOrders
+  canManageOrders,
+  lines
 }: Props) {
   const router = useRouter();
   const [toast, setToast] = useState<Toast>(null);
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [reasonId, setReasonId] = useState("500");
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
+  const [confirmAction, setConfirmAction] = useState<null | "picking" | "invoiced" | "unsupplied">(
+    null
+  );
 
   async function sendAction(endpoint: string, body?: unknown) {
     setToast(null);
@@ -70,7 +81,10 @@ export function OrdersPackageActionsClient({
       });
       const data = await safeParseJsonResponse(res);
       if (!res.ok) {
-        const msg = (data as any)?.error ?? "İşlem başarısız.";
+        const msg =
+          (data as any)?.error && typeof (data as any)?.error === "string"
+            ? (data as any).error
+            : "İşlem tamamlanamadı. Lütfen tekrar deneyin.";
         setToast({ type: "error", message: msg });
         return;
       }
@@ -93,10 +107,10 @@ export function OrdersPackageActionsClient({
   const status = packageStatus ?? null;
   const showPicking = status === "Created";
   const showInvoiced = status === "Picking";
-  const showShipped = status === "Invoiced";
-  const canShip =
-    Boolean(cargoTrackingNumber && cargoTrackingNumber.trim() !== "") &&
-    Boolean(cargoProviderName && cargoProviderName.trim() !== "");
+  const showUnsupplied = status === "Created" || status === "Picking" || status === "Invoiced";
+  const selectedLinesPayload = lines
+    .filter((l) => selectedLineIds.includes(l.id))
+    .map((l) => ({ lineId: l.lineId, quantity: l.quantity }));
 
   if (!canManageOrders) {
     return (
@@ -128,7 +142,7 @@ export function OrdersPackageActionsClient({
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="text-sm font-semibold text-slate-100">
-              Paket Aksiyonları
+              Operasyonlar
             </div>
             <div className="mt-1 text-xs text-slate-500">
               Paket: <span className="font-mono text-slate-300">{shipmentPackageId}</span>
@@ -148,11 +162,9 @@ export function OrdersPackageActionsClient({
               type="button"
               className="btn-primary"
               disabled={loadingAction !== null}
-              onClick={() => {
-                void sendAction(buildActionEndpoint(orderId, "picking"));
-              }}
+              onClick={() => setConfirmAction("picking")}
             >
-              Hazırlanıyor
+              Picking
             </button>
           )}
 
@@ -161,54 +173,125 @@ export function OrdersPackageActionsClient({
               type="button"
               className="btn-primary"
               disabled={loadingAction !== null}
-              onClick={() => {
-                void sendAction(buildActionEndpoint(orderId, "invoiced"));
-              }}
+              onClick={() => setConfirmAction("invoiced")}
             >
-              Faturalandı
+              Invoiced
             </button>
           )}
 
-          {showShipped && (
+          {showUnsupplied && (
             <button
               type="button"
-              className="btn-primary"
-              disabled={loadingAction !== null || !canShip}
-              onClick={() => {
-                void sendAction(buildActionEndpoint(orderId, "shipped"), {
-                  trackingNumber: cargoTrackingNumber,
-                  cargoProviderName
-                });
-              }}
-              title={!canShip ? "Kargo takip bilgisi eksik." : undefined}
+              className="btn-secondary"
+              disabled={loadingAction !== null}
+              onClick={() => setConfirmAction("unsupplied")}
             >
-              Kargoya verildi
+              Unsupplied
             </button>
           )}
+        </div>
 
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={loadingAction !== null}
-            onClick={() => {
-              void sendAction(buildActionEndpoint(orderId, "cancel"));
-            }}
-          >
-            İptal et
-          </button>
+        <div className="mt-5 grid gap-4 border-t border-slate-700 pt-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-slate-300">Fatura bilgisi (opsiyonel)</div>
+            <input
+              className="input"
+              placeholder="Fatura numarası"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+            />
+            <p className="text-xs text-slate-500">
+              Invoiced aksiyonunda opsiyonel olarak gönderilir.
+            </p>
+          </div>
 
-          <button
-            type="button"
-            className="btn-secondary"
-            disabled={loadingAction !== null}
-            onClick={() => {
-              void sendAction(buildActionEndpoint(orderId, "unsupplied"));
-            }}
-          >
-            Tedarik edilemedi
-          </button>
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-slate-300">Satır bazlı operasyon</div>
+            <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-slate-700 p-2">
+              {lines.map((line) => (
+                <label key={line.id} className="flex items-center gap-2 text-xs text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={selectedLineIds.includes(line.id)}
+                    onChange={(e) =>
+                      setSelectedLineIds((prev) =>
+                        e.target.checked ? [...prev, line.id] : prev.filter((x) => x !== line.id)
+                      )
+                    }
+                  />
+                  <span className="truncate">
+                    {line.stockCode ?? "—"} · {line.productName ?? "—"} · {line.quantity}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <input
+              className="input"
+              placeholder="Reason ID (varsayılan 500)"
+              value={reasonId}
+              onChange={(e) => setReasonId(e.target.value)}
+            />
+          </div>
         </div>
       </div>
+
+      <Modal
+        open={confirmAction !== null}
+        onClose={() => setConfirmAction(null)}
+        title={
+          confirmAction === "picking"
+            ? "Picking Onayı"
+            : confirmAction === "invoiced"
+              ? "Invoiced Onayı"
+              : "Unsupplied Onayı"
+        }
+      >
+        <div className="space-y-3 text-sm text-slate-300">
+          <p>
+            {confirmAction === "picking"
+              ? "Paket Picking durumuna alınacak."
+              : confirmAction === "invoiced"
+                ? "Paket Invoiced durumuna alınacak."
+                : "Seçili satırlar için Unsupplied işlemi Trendyol'a gönderilecek."}
+          </p>
+          {confirmAction === "unsupplied" && (
+            <div className="text-xs text-slate-400">
+              {selectedLinesPayload.length > 0
+                ? `${selectedLinesPayload.length} satır seçildi.`
+                : "Satır seçilmediyse tüm paket satırları işlenir."}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <button className="btn-secondary" onClick={() => setConfirmAction(null)}>
+              Vazgeç
+            </button>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                const action = confirmAction;
+                setConfirmAction(null);
+                if (!action) return;
+                if (action === "picking") {
+                  void sendAction(buildActionEndpoint(orderId, "picking"));
+                  return;
+                }
+                if (action === "invoiced") {
+                  void sendAction(buildActionEndpoint(orderId, "invoiced"), {
+                    invoiceNumber: invoiceNumber.trim() || undefined
+                  });
+                  return;
+                }
+                void sendAction(buildActionEndpoint(orderId, "unsupplied"), {
+                  reasonId: Number(reasonId) || 500,
+                  lines: selectedLinesPayload.length > 0 ? selectedLinesPayload : undefined
+                });
+              }}
+            >
+              Onayla
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

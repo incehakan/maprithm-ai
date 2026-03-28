@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  PageHeader,
+  PanelSurface,
+  PremiumButton,
+  PremiumInput,
+  PremiumSelect,
+  SectionHeader,
+  StatusBadge
+} from "@/components/premium/design-system";
 
 type Conn = {
   id: string;
@@ -85,8 +94,13 @@ export default function AdminSystemConnectionsPage() {
   }
 
   return (
-    <div className="card space-y-4">
-      <h2 className="text-base font-semibold">Trendyol Sistem Bağlantısı</h2>
+    <div className="space-y-4">
+      <PageHeader
+        title="System Connections"
+        subtitle="Global referans veriyi besleyen platform bağlantılarını yönetin."
+      />
+      <PanelSurface className="space-y-4">
+      <SectionHeader title="Trendyol Sistem Bağlantısı" />
       <p className="text-sm text-slate-400">
         Bu bağlantı global referans veri senkronu için kullanılır. Store bazlı değildir.
       </p>
@@ -114,23 +128,21 @@ export default function AdminSystemConnectionsPage() {
           )}
           <div>
             <label className="label">Seller ID</label>
-            <input className="input" value={sellerId} onChange={(e) => setSellerId(e.target.value)} />
+            <PremiumInput value={sellerId} onChange={(e) => setSellerId(e.target.value)} />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="label">API Key (opsiyonel güncelle)</label>
-              <input
+              <PremiumInput
                 type="password"
-                className="input"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
             </div>
             <div>
               <label className="label">API Secret (opsiyonel güncelle)</label>
-              <input
+              <PremiumInput
                 type="password"
-                className="input"
                 value={apiSecret}
                 onChange={(e) => setApiSecret(e.target.value)}
               />
@@ -138,19 +150,18 @@ export default function AdminSystemConnectionsPage() {
           </div>
           <div>
             <label className="label">User Agent</label>
-            <input className="input" value={userAgent} onChange={(e) => setUserAgent(e.target.value)} />
+            <PremiumInput value={userAgent} onChange={(e) => setUserAgent(e.target.value)} />
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="label">Environment</label>
-              <select
-                className="input"
+              <PremiumSelect
                 value={environment}
                 onChange={(e) => setEnvironment(e.target.value as "stage" | "production")}
               >
                 <option value="production">production</option>
                 <option value="stage">stage</option>
-              </select>
+              </PremiumSelect>
             </div>
             <label className="mt-8 flex items-center gap-2 text-sm">
               <input
@@ -161,11 +172,15 @@ export default function AdminSystemConnectionsPage() {
               Bağlantı aktif
             </label>
           </div>
-          <button className="btn-primary" onClick={save} disabled={saving}>
+          <div className="flex items-center gap-2">
+            {connection?.isActive ? <StatusBadge variant="success">Aktif</StatusBadge> : <StatusBadge variant="warning">Pasif</StatusBadge>}
+            <PremiumButton onClick={save} disabled={saving}>
             {saving ? "Kaydediliyor..." : "Kaydet"}
-          </button>
+            </PremiumButton>
+          </div>
         </>
       )}
+      </PanelSurface>
     </div>
   );
 }

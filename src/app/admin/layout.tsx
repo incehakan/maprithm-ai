@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { requireSystemAdmin } from "@/lib/requireSystemAdmin";
+import { AppShell, PanelSurface } from "@/components/premium/design-system";
 
 export default async function SystemAdminLayout({
   children
@@ -20,25 +21,25 @@ export default async function SystemAdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-5xl px-6 py-6">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-lg font-semibold">Sistem Yönetimi</h1>
-          <div className="flex items-center gap-4 text-sm">
-            <Link href="/admin/system-connections" className="text-indigo-300 hover:underline">
+    <AppShell>
+      <div className="mx-auto max-w-6xl px-6 py-6">
+        <PanelSurface className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-lg font-semibold text-white">Sistem Yönetimi</h1>
+          <div className="flex items-center gap-3 text-sm">
+            <Link href="/admin/system-connections" className="btn-secondary">
               System Connections
             </Link>
-            <Link href="/admin/reference-sync" className="text-indigo-300 hover:underline">
+            <Link href="/admin/reference-sync" className="btn-secondary">
               Reference Sync
             </Link>
-            <Link href="/dashboard" className="text-slate-300 hover:underline">
+            <Link href="/dashboard" className="btn-secondary">
               Dashboard
             </Link>
           </div>
-        </div>
+        </PanelSurface>
         {children}
       </div>
-    </div>
+    </AppShell>
   );
 }
 

@@ -43,6 +43,8 @@ export const RBAC_PERMISSION_LABELS_TR: Record<string, string> = {
   "store.rbac.manage": "Yetki ve menü yönetimi",
   "orders.view": "Siparişleri görüntüleme",
   "orders.manage": "Sipariş yönetimi",
+  "returns.view": "İadeleri görüntüleme",
+  "returns.manage": "İade işlemleri (senkron, onay, red)",
   "imports.manage": "Dosya içe aktarma",
   "feeds.manage": "XML beslemeler"
 };

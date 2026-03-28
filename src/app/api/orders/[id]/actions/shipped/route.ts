@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createActivityLog } from "@/lib/activityLog";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import {
   updatePackageStatus,
   type TrendyolPackageActionPayload
 } from "@/lib/trendyolOrderActions";
 import { Prisma } from "@prisma/client";
+import {
+  logOrderOperationCompleted,
+  logOrderOperationFailed,
+  logOrderOperationStarted
+} from "@/lib/trendyolOrderOperationLog";
 
 type Params = { params: { id: string } };
 
@@ -69,15 +73,13 @@ export async function POST(request: Request, { params }: Params) {
   };
   const status = "Shipped" as const;
 
-  await createActivityLog({
-    userId: ctx.userId,
-    storeId: ctx.storeId,
-    membershipId: ctx.membershipId,
-    action: "TRENDYOL_ORDER_ACTION_SENT",
-    entityType: "marketplace_order",
-    entityId: order.id,
-    message: `Trendyol paket aksiyonu gönderildi: ${status} (packageId=${order.shipmentPackageId})`
-  });
+  await logOrderOperationStarted(
+    ctx,
+    order.id,
+    order.shipmentPackageId,
+    "Shipped",
+    payload
+  );
 
   try {
     const result = await updatePackageStatus(
@@ -102,24 +104,17 @@ export async function POST(request: Request, { params }: Params) {
       data: {
         storeId: ctx.storeId,
         orderId: order.id,
-        action: `TRENDYOL_ORDER_ACTION_${result.sentStatus}`,
+        action: "TRENDYOL_PACKAGE_SYNCED",
         message: `Paket durumu güncellendi: ${result.sentStatus}`,
         rawData: (result.trendyolData ?? Prisma.JsonNull) as Prisma.InputJsonValue
       }
     });
+    await logOrderOperationCompleted(ctx, order.id, "Shipped", result.trendyolData);
 
     return NextResponse.json({ success: true, packageStatus: result.sentStatus });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Trendyol aksiyonu başarısız.";
-    await createActivityLog({
-      userId: ctx.userId,
-      storeId: ctx.storeId,
-      membershipId: ctx.membershipId,
-      action: "TRENDYOL_ORDER_ACTION_FAILED",
-      entityType: "marketplace_order",
-      entityId: order.id,
-      message
-    });
+    await logOrderOperationFailed(ctx, order.id, "Shipped", message);
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }

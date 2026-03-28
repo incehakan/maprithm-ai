@@ -80,6 +80,16 @@ async function main() {
       description: "Trendyol sipariş çekme ve ileride paket aksiyonları"
     },
     {
+      key: "returns.view",
+      name: "İadeleri görüntüle",
+      description: "Pazaryeri iade talepleri listesi ve detay"
+    },
+    {
+      key: "returns.manage",
+      name: "İade işlemleri",
+      description: "İade senkronu, onay ve red işlemleri"
+    },
+    {
       key: "products.view",
       name: "Ürünleri görüntüle",
       description: "Ürün listesi ve detay ekranları"
@@ -194,7 +204,9 @@ async function main() {
       "pricing.update",
       "store.users.manage",
       "orders.view",
-      "orders.manage"
+      "orders.manage",
+      "returns.view",
+      "returns.manage"
     ];
     // Owner-only: billing.manage, owner.manage
     const editorPerms = [
@@ -207,12 +219,14 @@ async function main() {
       "marketplace.publish",
       "marketplace.unpublish",
       "pricing.update",
-      "orders.view"
+      "orders.view",
+      "returns.view"
     ];
     const pricingPerms = [
       "reports.view",
       "products.view",
       "orders.view",
+      "returns.view",
       "pricing.update",
       "marketplace.publish",
       "marketplace.unpublish"
@@ -221,10 +235,12 @@ async function main() {
       "reports.view",
       "products.view",
       "orders.view",
-      "orders.manage"
+      "orders.manage",
+      "returns.view",
+      "returns.manage"
     ];
-    const supportPerms = ["reports.view", "products.view", "orders.view"];
-    const viewerPerms = ["reports.view", "products.view", "orders.view"];
+    const supportPerms = ["reports.view", "products.view", "orders.view", "returns.view"];
+    const viewerPerms = ["reports.view", "products.view", "orders.view", "returns.view"];
     const managerPerms = [
       "products.view",
       "products.create",
@@ -235,7 +251,8 @@ async function main() {
       "marketplace.publish",
       "marketplace.unpublish",
       "pricing.update",
-      "orders.view"
+      "orders.view",
+      "returns.view"
     ];
     const staffPerms = [];
 

@@ -72,8 +72,13 @@ export async function getSystemTrendyolCredentials(): Promise<{
   };
 }
 
+export type TrendyolSystemFetchOptions = {
+  extraHeaders?: Record<string, string>;
+};
+
 export async function trendyolSystemFetch<T = unknown>(
-  path: string
+  path: string,
+  options?: TrendyolSystemFetchOptions
 ): Promise<TrendyolSystemFetchResult<T>> {
   const { credentials, clientIp, agentName } = await getSystemTrendyolCredentials();
   const base = getBaseUrl(credentials.environment);
@@ -95,7 +100,8 @@ export async function trendyolSystemFetch<T = unknown>(
         "x-clientip": clientIp,
         "x-correlationid": correlationId,
         "x-agentname": agentName,
-        Accept: "application/json"
+        Accept: "application/json",
+        ...(options?.extraHeaders ?? {})
       },
       cache: "no-store"
     });

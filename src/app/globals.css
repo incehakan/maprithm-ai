@@ -3,22 +3,58 @@
 @tailwind utilities;
 
 body {
-  @apply bg-slate-950 text-slate-100;
+  @apply bg-[#0b0f19] text-slate-100 antialiased;
+  background-image:
+    radial-gradient(1000px 480px at -5% -15%, rgba(99, 102, 241, 0.2), transparent 55%),
+    radial-gradient(900px 420px at 105% -10%, rgba(168, 85, 247, 0.16), transparent 55%),
+    radial-gradient(700px 320px at 50% 105%, rgba(59, 130, 246, 0.12), transparent 55%);
 }
 
 .card {
-  @apply rounded-xl border border-slate-800 bg-slate-900/60 p-4 shadow-sm;
+  @apply rounded-2xl border border-white/10 bg-white/[0.03] p-5 shadow-[0_20px_80px_-32px_rgba(15,23,42,0.9)] backdrop-blur-xl;
 }
 
 .btn-primary {
-  @apply inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60;
+  @apply inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_30px_-12px_rgba(99,102,241,0.75)] transition duration-200 hover:scale-[1.01] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-slate-200 transition duration-200 hover:border-indigo-400/40 hover:bg-white/[0.06];
 }
 
 .input {
-  @apply w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500;
+  @apply w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 transition focus:border-indigo-400/60 focus:outline-none focus:ring-2 focus:ring-indigo-500/30;
 }
 
 .label {
-  @apply mb-1 block text-xs font-medium text-slate-300;
+  @apply mb-1.5 block text-xs font-medium tracking-wide text-slate-300;
+}
+
+.table-modern {
+  @apply min-w-full text-sm;
+}
+
+.table-modern thead {
+  @apply text-left text-xs uppercase tracking-wide text-slate-400;
+}
+
+.table-modern tbody tr {
+  @apply border-t border-white/5 transition hover:bg-white/[0.03];
+}
+
+.alert-modern {
+  @apply rounded-xl border px-4 py-3 text-sm backdrop-blur;
+}
+
+.alert-success {
+  @apply border-emerald-400/30 bg-emerald-400/10 text-emerald-100;
+}
+
+.alert-error {
+  @apply border-rose-400/30 bg-rose-400/10 text-rose-100;
+}
+
+.alert-warning {
+  @apply border-amber-400/30 bg-amber-400/10 text-amber-100;
 }
 

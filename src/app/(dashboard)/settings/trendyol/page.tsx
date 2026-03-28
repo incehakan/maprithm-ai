@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { Alert } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type ConnectionView = {
   id: string;
@@ -220,10 +225,8 @@ function TrendyolSettingsPageContent() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Trendyol Entegrasyonu
-        </h1>
-        <p className="text-sm text-slate-400">Yükleniyor...</p>
+        <Skeleton className="h-10 w-56" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -248,22 +251,9 @@ function TrendyolSettingsPageContent() {
         </Link>
       </div>
 
-      {message && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            message.type === "success"
-              ? "border-emerald-800 bg-emerald-900/30 text-emerald-200"
-              : message.type === "warning"
-                ? "border-amber-700 bg-amber-900/25 text-amber-100"
-                : "border-red-800 bg-red-900/30 text-red-200"
-          }`}
-          role="alert"
-        >
-          {message.text}
-        </div>
-      )}
+      {message && <Alert variant={message.type === "success" ? "success" : message.type === "warning" ? "warning" : "error"}>{message.text}</Alert>}
 
-      <div className="card space-y-4">
+      <Card className="space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
           API Kimlik Bilgileri
         </h2>
@@ -298,11 +288,10 @@ function TrendyolSettingsPageContent() {
 
         <div>
           <label className="label">Seller ID</label>
-          <input
+          <Input
             type="text"
             value={sellerId}
             onChange={(e) => setSellerId(e.target.value)}
-            className="input"
             placeholder="Örn: 123456"
             autoComplete="off"
           />
@@ -311,11 +300,10 @@ function TrendyolSettingsPageContent() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="label">API Key</label>
-            <input
+            <Input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              className="input"
               placeholder={
                 connection
                   ? "Değiştirmek için yeni key girin"
@@ -326,11 +314,10 @@ function TrendyolSettingsPageContent() {
           </div>
           <div>
             <label className="label">API Secret</label>
-            <input
+            <Input
               type="password"
               value={apiSecret}
               onChange={(e) => setApiSecret(e.target.value)}
-              className="input"
               placeholder={
                 connection
                   ? "Değiştirmek için yeni secret girin"
@@ -343,11 +330,10 @@ function TrendyolSettingsPageContent() {
 
         <div>
           <label className="label">User-Agent</label>
-          <input
+          <Input
             type="text"
             value={userAgent}
             onChange={(e) => setUserAgent(e.target.value)}
-            className="input"
             placeholder='Örn: "123456 - SelfIntegration" veya "123456 - FirmaAdi"'
           />
           <p className="mt-1 text-xs text-slate-500">
@@ -359,16 +345,15 @@ function TrendyolSettingsPageContent() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="label">Ortam</label>
-            <select
+            <Select
               value={environment}
               onChange={(e) =>
                 setEnvironment(e.target.value as "stage" | "production")
               }
-              className="input"
             >
               <option value="production">Production (apigw.trendyol.com)</option>
               <option value="stage">Stage (stageapigw.trendyol.com)</option>
-            </select>
+            </Select>
             <p className="mt-1 text-xs text-amber-500/90">
               Stage ortamı için IP yetkilendirmesi gerekebilir; aksi halde 503
               alabilirsiniz.
@@ -410,9 +395,9 @@ function TrendyolSettingsPageContent() {
             {testing ? "Test ediliyor..." : "Bağlantıyı Test Et"}
           </button>
         </div>
-      </div>
+      </Card>
 
-      <div className="card space-y-4">
+      <Card className="space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
           Gönderim ve iade adresleri
         </h2>
@@ -439,10 +424,9 @@ function TrendyolSettingsPageContent() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="label">Gönderim adresi</label>
-            <select
+            <Select
               value={shipmentAddressId}
               onChange={(e) => setShipmentAddressId(e.target.value)}
-              className="input"
             >
               <option value="">Seçin…</option>
               {addressOptions.map((a) => (
@@ -450,14 +434,13 @@ function TrendyolSettingsPageContent() {
                   {a.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div>
             <label className="label">İade adresi</label>
-            <select
+            <Select
               value={returnAddressId}
               onChange={(e) => setReturnAddressId(e.target.value)}
-              className="input"
             >
               <option value="">Seçin…</option>
               {addressOptions.map((a) => (
@@ -465,16 +448,16 @@ function TrendyolSettingsPageContent() {
                   {a.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         </div>
         <p className="text-xs text-slate-500">
           Adresleri seçtikten sonra üstteki <strong>Kaydet</strong> ile
           saklayın; aksi halde yayın sırasında hata alırsınız.
         </p>
-      </div>
+      </Card>
 
-      <div className="card space-y-4">
+      <Card className="space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
           Global Referans Veri Durumu
         </h2>
@@ -519,7 +502,7 @@ function TrendyolSettingsPageContent() {
             </div>
           )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

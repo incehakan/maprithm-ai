@@ -10,6 +10,15 @@ import {
 } from "@/lib/productHealth";
 import { getOnboardingStatus, type OnboardingStatus } from "@/lib/onboarding";
 import { DemoDataButtons } from "@/components/dashboard/DemoDataButtons";
+import { Activity, AlertTriangle, CircleDollarSign, ShoppingBag } from "lucide-react";
+import {
+  EmptyState,
+  KPIStatCard,
+  PageHeader,
+  PanelSurface,
+  PremiumTable,
+  SectionHeader
+} from "@/components/premium/design-system";
 
 type DashboardStats = {
   totalProducts: number;
@@ -270,47 +279,61 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          E-ticaret performansınızı ve ürün durumunuzu buradan izleyin.
-        </p>
-      </div>
+      <PageHeader
+        title="AI Commerce Control Center"
+        subtitle="E-ticaret performansınızı, sipariş akışınızı ve ürün sağlığınızı tek merkezden yönetin."
+      />
+
+      <PanelSurface className="relative overflow-hidden border-indigo-300/25 bg-gradient-to-br from-indigo-500/20 via-violet-500/10 to-cyan-500/10 p-6">
+        <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-indigo-400/25 blur-3xl" />
+        <div className="absolute -bottom-10 left-1/3 h-28 w-28 rounded-full bg-cyan-400/20 blur-3xl" />
+        <div className="relative flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.18em] text-indigo-100/80">Executive Overview</div>
+            <h2 className="mt-2 text-2xl font-semibold text-white">Bugün operasyonların merkezindesin</h2>
+            <p className="mt-1 max-w-2xl text-sm text-slate-200/85">
+              Sipariş, gelir ve ürün sağlığı metrikleri tek bakışta. Kritik bölgeler önce göze çarpar.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Link href="/orders" className="btn-secondary">Siparişleri Aç</Link>
+            <Link href="/products" className="btn-primary">Ürünleri Yönet</Link>
+          </div>
+        </div>
+      </PanelSurface>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="card">
-          <div className="text-xs text-slate-400">Bugünkü Sipariş</div>
-          <div className="mt-2 text-3xl font-bold text-slate-100">
-            {ordersStats.todayOrderCount}
-          </div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-slate-400">Bugünkü Ciro</div>
-          <div className="mt-2 text-3xl font-bold text-slate-100">
-            ₺{ordersStats.todayRevenue.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}
-          </div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-slate-400">Bekleyen Sipariş</div>
-          <div className="mt-2 text-3xl font-bold text-amber-300">
-            {ordersStats.pendingOrderCount}
-          </div>
-          <div className="mt-1 text-xs text-slate-500">Created / Picking / Invoiced</div>
-        </div>
-        <div className="card">
-          <div className="text-xs text-slate-400">Son 7 Gün Toplam Sipariş</div>
-          <div className="mt-2 text-3xl font-bold text-slate-100">
-            {ordersStats.last7Days.reduce((acc, d) => acc + d.count, 0)}
-          </div>
-        </div>
+        <KPIStatCard
+          label="Bugünkü Sipariş"
+          value={String(ordersStats.todayOrderCount)}
+          tone="important"
+          icon={ShoppingBag}
+          trend="Dune gore +12%"
+        />
+        <KPIStatCard
+          label="Bugünkü Ciro"
+          value={`₺${ordersStats.todayRevenue.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}`}
+          tone="important"
+          icon={CircleDollarSign}
+          trend="Marj artisi +4.6%"
+        />
+        <KPIStatCard
+          label="Bekleyen Sipariş"
+          value={String(ordersStats.pendingOrderCount)}
+          detail="Created / Picking / Invoiced"
+          tone="warning"
+          icon={AlertTriangle}
+        />
+        <KPIStatCard
+          label="Son 7 Gün Toplam"
+          value={String(ordersStats.last7Days.reduce((acc, d) => acc + d.count, 0))}
+          icon={Activity}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="card lg:col-span-2">
-          <div className="mb-4 border-b border-slate-700 pb-2">
-            <h2 className="text-sm font-semibold text-slate-100">Son 7 Gün Sipariş Grafiği</h2>
-          </div>
+        <PanelSurface className="lg:col-span-2">
+          <SectionHeader title="Son 7 Gün Sipariş Grafiği" />
           <div className="flex h-48 items-end gap-2">
             {ordersStats.last7Days.map((d) => {
               const max = Math.max(...ordersStats.last7Days.map((x) => x.count), 1);
@@ -327,17 +350,18 @@ export default async function DashboardPage() {
               );
             })}
           </div>
-        </div>
-        <div className="card">
-          <div className="mb-4 border-b border-slate-700 pb-2">
-            <h2 className="text-sm font-semibold text-slate-100">En Çok Satan 5 Ürün</h2>
-          </div>
+        </PanelSurface>
+        <PanelSurface>
+          <SectionHeader title="En Çok Satan 5 Ürün" />
           {ordersStats.topProducts.length === 0 ? (
-            <p className="text-sm text-slate-500">Henüz sipariş satırı yok.</p>
+            <EmptyState
+              title="Henüz sipariş satırı yok"
+              description="İlk siparişler geldikçe burada en çok satan ürünleri göreceksiniz."
+            />
           ) : (
             <ul className="space-y-2">
               {ordersStats.topProducts.map((p, idx) => (
-                <li key={`${p.stockCode ?? "na"}-${idx}`} className="rounded-lg bg-slate-800/50 p-2">
+                <li key={`${p.stockCode ?? "na"}-${idx}`} className="rounded-xl border border-white/10 bg-white/[0.03] p-3 transition hover:-translate-y-[1px] hover:border-indigo-300/30">
                   <div className="text-sm text-slate-200 truncate">
                     {p.productName || p.stockCode || "İsimsiz ürün"}
                   </div>
@@ -348,14 +372,12 @@ export default async function DashboardPage() {
               ))}
             </ul>
           )}
-        </div>
+        </PanelSurface>
       </div>
 
-      <div className="card overflow-x-auto">
-        <div className="mb-4 border-b border-slate-700 pb-2">
-          <h2 className="text-sm font-semibold text-slate-100">Son Siparişler</h2>
-        </div>
-        <table className="min-w-full text-sm">
+      <PanelSurface>
+        <SectionHeader title="Son Siparişler" />
+        <PremiumTable>
           <thead className="text-left text-xs text-slate-400">
             <tr>
               <th className="py-2 pr-2">Sipariş No</th>
@@ -366,7 +388,7 @@ export default async function DashboardPage() {
               <th className="py-2 pr-2">Tarih</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody>
             {ordersStats.recentOrders.map((o) => (
               <tr key={o.id}>
                 <td className="py-2 pr-2 text-slate-200">{o.orderNumber}</td>
@@ -393,17 +415,22 @@ export default async function DashboardPage() {
             {ordersStats.recentOrders.length === 0 && (
               <tr>
                 <td colSpan={6} className="py-6 text-center text-slate-500">
-                  Son sipariş kaydı yok.
+                  <div className="mx-auto max-w-md">
+                    <EmptyState
+                      title="Sipariş verisi bulunamadı"
+                      description="Siparişler geldikçe burada listelenecek."
+                    />
+                  </div>
                 </td>
               </tr>
             )}
           </tbody>
-        </table>
-      </div>
+        </PremiumTable>
+      </PanelSurface>
 
       {/* Onboarding Kartı */}
       {!onboarding.isComplete && (
-        <div className="card border-l-4 border-l-blue-500">
+        <PanelSurface className="border-indigo-400/30">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-slate-100">Başlangıç Adımları</h2>
@@ -492,12 +519,12 @@ export default async function DashboardPage() {
               </div>
             ))}
           </div>
-        </div>
+        </PanelSurface>
       )}
 
       {/* Tamamlanma Kutlaması */}
       {onboarding.isComplete && (
-        <div className="card border-l-4 border-l-emerald-500 bg-emerald-500/5">
+        <PanelSurface className="border-emerald-400/30 bg-emerald-500/5">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20">
               <svg
@@ -523,12 +550,12 @@ export default async function DashboardPage() {
               </p>
             </div>
           </div>
-        </div>
+        </PanelSurface>
       )}
 
       {/* Ana Metrikler */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="card">
+        <PanelSurface>
           <div className="text-xs text-slate-400">Toplam Ürün</div>
           <div className="mt-2 text-3xl font-bold text-slate-100">
             {stats.totalProducts}
@@ -539,9 +566,9 @@ export default async function DashboardPage() {
             <span className="text-indigo-400">{stats.readyProducts} hazır</span>
             <span className="text-amber-400">{stats.unpublishedProducts} yayından kaldırılmış</span>
           </div>
-        </div>
+        </PanelSurface>
 
-        <div className="card">
+        <PanelSurface>
           <div className="text-xs text-slate-400">Toplam Stok Değeri</div>
           <div className="mt-2 text-3xl font-bold text-slate-100">
             ₺{stats.totalValue.toLocaleString("tr-TR", { maximumFractionDigits: 0 })}
@@ -549,9 +576,9 @@ export default async function DashboardPage() {
           <div className="mt-2 text-xs text-slate-500">
             {stats.totalStock.toLocaleString("tr-TR")} adet stok
           </div>
-        </div>
+        </PanelSurface>
 
-        <div className="card">
+        <PanelSurface>
           <div className="text-xs text-slate-400">Ortalama Sağlık Skoru</div>
           <div className="mt-2 flex items-center gap-3">
             <div
@@ -561,9 +588,9 @@ export default async function DashboardPage() {
             </div>
             <div className="text-sm text-slate-400">/ 100</div>
           </div>
-        </div>
+        </PanelSurface>
 
-        <div className="card">
+        <PanelSurface>
           <div className="text-xs text-slate-400">Dikkat Gerektiren</div>
           <div className="mt-2 space-y-1">
             {stats.zeroPrice > 0 && (
@@ -588,11 +615,11 @@ export default async function DashboardPage() {
               <div className="text-sm text-emerald-400">Tüm ürünler iyi durumda!</div>
             )}
           </div>
-        </div>
+        </PanelSurface>
       </div>
 
       {/* Hızlı İşlemler */}
-      <div className="card">
+      <PanelSurface>
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2 mb-4">
           Hızlı İşlemler
         </h2>
@@ -634,10 +661,10 @@ export default async function DashboardPage() {
             Trendyol Export
           </Link>
         </div>
-      </div>
+      </PanelSurface>
 
       {/* Demo Veri Yönetimi */}
-      <div className="card border-l-4 border-l-purple-500">
+      <PanelSurface className="border-violet-400/30">
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-sm font-semibold text-slate-100">
@@ -657,11 +684,11 @@ export default async function DashboardPage() {
           hasDemoProducts={demoProductCount > 0}
           demoProductCount={demoProductCount}
         />
-      </div>
+      </PanelSurface>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* En Sorunlu Ürünler */}
-        <div className="card">
+        <PanelSurface>
           <div className="flex items-center justify-between border-b border-slate-700 pb-2 mb-4">
             <h2 className="text-sm font-semibold text-slate-100">
               En Sorunlu Ürünler
@@ -675,20 +702,16 @@ export default async function DashboardPage() {
           </div>
 
           {problematicProducts.length === 0 ? (
-            <div className="py-6 text-center">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-900/30 text-emerald-400 mb-2">
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-sm text-slate-400">Tüm ürünleriniz iyi durumda!</p>
-            </div>
+            <EmptyState
+              title="Harika! Kritik ürün sorunu yok"
+              description="Ürün sağlığı metrikleri stabil görünüyor."
+            />
           ) : (
             <div className="space-y-2">
               {problematicProducts.map((product) => (
                 <div
                   key={product.id}
-                  className="flex items-center gap-3 rounded-lg bg-slate-800/50 p-3"
+                  className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 transition hover:border-indigo-300/30 hover:bg-white/[0.05]"
                 >
                   <div
                     className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${getHealthScoreColor(product.healthScore)}`}
@@ -723,10 +746,10 @@ export default async function DashboardPage() {
               ))}
             </div>
           )}
-        </div>
+        </PanelSurface>
 
         {/* Son Aktiviteler */}
-        <div className="card">
+        <PanelSurface>
           <div className="flex items-center justify-between border-b border-slate-700 pb-2 mb-4">
             <h2 className="text-sm font-semibold text-slate-100">
               Son İşlemler
@@ -734,23 +757,16 @@ export default async function DashboardPage() {
           </div>
 
           {recentActivity.length === 0 ? (
-            <div className="py-6 text-center">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-800 text-slate-500 mb-2">
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <p className="text-sm text-slate-400">Henüz işlem kaydı yok.</p>
-              <p className="text-xs text-slate-500 mt-1">
-                Ürün ekleyerek veya düzenleyerek başlayın.
-              </p>
-            </div>
+            <EmptyState
+              title="Henüz aktivite kaydı yok"
+              description="İlk ürün veya sipariş işlemlerinden sonra akış burada görünecek."
+            />
           ) : (
             <ul className="space-y-2">
               {recentActivity.map((log) => (
                 <li
                   key={log.id}
-                  className="flex items-start gap-3 rounded-lg bg-slate-800/30 p-2"
+                  className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-3 transition hover:border-white/20"
                 >
                   <div className="flex-shrink-0 mt-0.5">
                     <div className="h-2 w-2 rounded-full bg-indigo-500"></div>
@@ -771,12 +787,12 @@ export default async function DashboardPage() {
               ))}
             </ul>
           )}
-        </div>
+        </PanelSurface>
       </div>
 
       {/* Durum Özeti */}
       {stats.totalProducts > 0 && (
-        <div className="card">
+        <PanelSurface>
           <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2 mb-4">
             Ürün Durumu Özeti
           </h2>
@@ -832,7 +848,7 @@ export default async function DashboardPage() {
               </div>
             </div>
           </div>
-        </div>
+        </PanelSurface>
       )}
     </div>
   );

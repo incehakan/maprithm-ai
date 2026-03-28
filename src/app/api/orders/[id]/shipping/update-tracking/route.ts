@@ -1,0 +1,127 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { recordShippingOperationAudit } from "@/lib/orderShippingAudit";
+import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import {
+  buildLocalTrackingLinkAfterUpdate,
+  resolveProviderNameFromReference,
+  updateTrackingNumberOnTrendyol,
+  validateTrackingPayload
+} from "@/lib/trendyolShipping";
+
+export async function POST(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch {
+    return NextResponse.json({ success: false, error: "Yetkisiz." }, { status: 401 });
+  }
+  try {
+    requirePermission(ctx, "orders.manage");
+  } catch {
+    return NextResponse.json({ success: false, error: "Erişim yok." }, { status: 403 });
+  }
+
+  const { id: orderId } = await context.params;
+  const body = await request.json().catch(() => null);
+  const v = validateTrackingPayload(body);
+  if (!v.ok) {
+    return NextResponse.json({ success: false, error: v.message }, { status: 400 });
+  }
+
+  const order = await prisma.marketplaceOrder.findFirst({
+    where: { id: orderId, storeId: ctx.storeId }
+  });
+  if (!order) {
+    return NextResponse.json({ success: false, error: "Sipariş bulunamadı." }, { status: 404 });
+  }
+
+  const pkg = order.shipmentPackageId?.trim();
+  if (!pkg) {
+    return NextResponse.json(
+      { success: false, error: "shipmentPackageId eksik." },
+      { status: 400 }
+    );
+  }
+
+  await prisma.marketplaceOrder.update({
+    where: { id: order.id },
+    data: {
+      shippingOperationStatus: "pending",
+      shippingOperationLastErrorMessage: null
+    }
+  });
+
+  const api = await updateTrackingNumberOnTrendyol({
+    userId: ctx.userId,
+    storeId: ctx.storeId,
+    shipmentPackageId: pkg,
+    payload: v.value
+  });
+
+  if (!api.ok) {
+    await prisma.marketplaceOrder.update({
+      where: { id: order.id },
+      data: {
+        shippingOperationStatus: "error",
+        shippingOperationLastErrorMessage: api.message.slice(0, 2000)
+      }
+    });
+    await recordShippingOperationAudit({
+      storeId: ctx.storeId,
+      userId: ctx.userId,
+      membershipId: ctx.membershipId,
+      orderId: order.id,
+      shipmentPackageId: pkg,
+      action: "TRACKING_UPDATE_FAILED",
+      message: api.message,
+      rawData: { step: "trendyol_api" },
+      activityAction: "TRENDYOL_TRACKING_UPDATE_FAILED",
+      activityMessage: `Takip güncellenemedi: ${pkg}`
+    });
+    return NextResponse.json({ success: false, error: api.message }, { status: 502 });
+  }
+
+  const nameFromRef = await resolveProviderNameFromReference(v.value.providerCode);
+  const displayName = nameFromRef ?? order.cargoProviderName ?? v.value.providerCode;
+  const link = buildLocalTrackingLinkAfterUpdate(
+    v.value.trackingNumber,
+    v.value.providerCode,
+    displayName
+  );
+
+  await prisma.marketplaceOrder.update({
+    where: { id: order.id },
+    data: {
+      cargoTrackingNumber: v.value.trackingNumber,
+      cargoSenderNumber: v.value.cargoSenderNumber,
+      cargoProviderCode: v.value.providerCode,
+      cargoProviderName: displayName,
+      cargoTrackingLink: link ?? order.cargoTrackingLink,
+      trackingUpdatedAt: new Date(),
+      shippingOperationStatus: "success",
+      shippingOperationLastErrorMessage: null
+    }
+  });
+
+  await recordShippingOperationAudit({
+    storeId: ctx.storeId,
+    userId: ctx.userId,
+    membershipId: ctx.membershipId,
+    orderId: order.id,
+    shipmentPackageId: pkg,
+    action: "TRACKING_UPDATED",
+    message: "Takip numarası Trendyol ile güncellendi.",
+    rawData: {
+      providerCode: v.value.providerCode,
+      trackingNumber: v.value.trackingNumber
+    },
+    activityAction: "TRENDYOL_TRACKING_UPDATED",
+    activityMessage: `Takip güncellendi: ${pkg}`
+  });
+
+  return NextResponse.json({ success: true });
+}

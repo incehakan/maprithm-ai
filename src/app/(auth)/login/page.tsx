@@ -4,6 +4,9 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import Link from "next/link";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -78,9 +81,8 @@ export default function LoginPage() {
         <label className="label" htmlFor="email">
           Email
         </label>
-        <input
+        <Input
           id="email"
-          className="input"
           type="email"
           required
           value={email}
@@ -93,9 +95,8 @@ export default function LoginPage() {
             <label className="label" htmlFor="password">
               Şifre
             </label>
-            <input
+            <Input
               id="password"
-              className="input"
               type="password"
               required
               value={password}
@@ -107,9 +108,8 @@ export default function LoginPage() {
             <label className="label" htmlFor="newPassword">
               Yeni şifre
             </label>
-            <input
+            <Input
               id="newPassword"
-              className="input"
               type="password"
               required
               minLength={6}
@@ -120,10 +120,10 @@ export default function LoginPage() {
         )}
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
-      {success && <p className="text-sm text-emerald-300">{success}</p>}
+      {error && <Alert variant="error">{error}</Alert>}
+      {success && <Alert variant="success">{success}</Alert>}
 
-      <button className="btn-primary w-full" disabled={loading}>
+      <Button className="w-full" disabled={loading}>
         {forgotMode
           ? loading
             ? "Şifre güncelleniyor..."
@@ -131,11 +131,11 @@ export default function LoginPage() {
           : loading
             ? "Giriş yapılıyor..."
             : "Giriş yap"}
-      </button>
+      </Button>
 
       <button
         type="button"
-        className="w-full text-xs text-slate-300 hover:underline"
+        className="w-full rounded-xl border border-white/10 bg-white/[0.02] py-2 text-xs text-slate-300 transition hover:bg-white/[0.06]"
         onClick={() => {
           setForgotMode((v) => !v);
           setError(null);
@@ -147,7 +147,7 @@ export default function LoginPage() {
 
       <p className="mt-2 text-center text-xs text-slate-400">
         İlk defa mı kullanıyorsun?{" "}
-        <Link href="/register-store" className="text-indigo-400 hover:underline">
+        <Link href="/register-store" className="text-indigo-300 hover:text-indigo-200">
           Mağaza oluştur
         </Link>
       </p>

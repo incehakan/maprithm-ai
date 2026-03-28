@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { syncGlobalTrendyolCarrierCompanies } from "@/lib/trendyolCarrier";
 import { normalizeBrandData, normalizeCategoryData } from "@/lib/trendyolNormalize";
 import { trendyolSystemFetch } from "@/lib/trendyolSystemFetch";
 import {
@@ -148,6 +149,8 @@ export async function syncGlobalTrendyolCategories(): Promise<{ count: number }>
 export async function runGlobalTrendyolReferenceSync(params?: {
   triggeredByUserId?: string | null;
 }): Promise<{
+  carriers: number;
+  carrierSource: "api" | "static";
   brands: number;
   categories: number;
   categoryAttributes: number;
@@ -183,12 +186,13 @@ export async function runGlobalTrendyolReferenceSync(params?: {
   });
 
   try {
+    const carriers = await syncGlobalTrendyolCarrierCompanies();
     const brands = await syncGlobalTrendyolBrands();
     const categories = await syncGlobalTrendyolCategories();
     const attrs = await syncTrendyolCategoryAttributesForAllLeafCategoriesSystem();
     if (!attrs.success) throw new Error(attrs.message);
 
-    const message = `Marka: ${brands.count}, kategori: ${categories.count}, özellik: ${attrs.data.attributeCount}, değer: ${attrs.data.valueCount}`;
+    const message = `Kargo ref: ${carriers.count} (${carriers.source}), marka: ${brands.count}, kategori: ${categories.count}, özellik: ${attrs.data.attributeCount}, değer: ${attrs.data.valueCount}`;
     await prisma.systemMarketplaceConnection.update({
       where: { platform: "trendyol" },
       data: {
@@ -203,6 +207,8 @@ export async function runGlobalTrendyolReferenceSync(params?: {
         status: "success",
         message,
         summary: {
+          carriers: carriers.count,
+          carrierSource: carriers.source,
           brands: brands.count,
           categories: categories.count,
           categoryAttributes: attrs.data.attributeCount,
@@ -215,6 +221,8 @@ export async function runGlobalTrendyolReferenceSync(params?: {
     });
 
     return {
+      carriers: carriers.count,
+      carrierSource: carriers.source,
       brands: brands.count,
       categories: categories.count,
       categoryAttributes: attrs.data.attributeCount,

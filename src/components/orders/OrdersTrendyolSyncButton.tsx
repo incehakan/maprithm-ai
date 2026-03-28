@@ -1,11 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { safeParseJsonResponse } from "@/lib/safeParseJsonResponse";
 
 type Props = {
   statusFilter?: string;
+};
+
+type JobRow = {
+  status: string;
+  packagesFetchedCount?: number;
+  failedCount?: number;
+  errorMessage?: string | null;
 };
 
 export function OrdersTrendyolSyncButton({ statusFilter }: Props) {
@@ -13,28 +20,88 @@ export function OrdersTrendyolSyncButton({ statusFilter }: Props) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  function stopPoll() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  async function pollJob(id: string) {
+    stopPoll();
+    const tick = async () => {
+      try {
+        const st = await fetch(`/api/orders/trendyol/sync?jobId=${encodeURIComponent(id)}`);
+        const data = await safeParseJsonResponse(st);
+        if (!data || (data as { success?: boolean }).success !== true) return false;
+        const jobs = (data as { jobs?: JobRow[] }).jobs;
+        const job = jobs?.[0];
+        if (!job) return false;
+        if (job.status === "queued" || job.status === "running") return false;
+        stopPoll();
+        setLoading(false);
+        if (job.status === "failed") {
+          setError(job.errorMessage ?? "Senkron başarısız.");
+        } else {
+          setMessage(
+            `Senkron tamam (${job.status}). Çekilen: ${job.packagesFetchedCount ?? 0}${
+              (job.failedCount ?? 0) > 0 ? `, hata: ${job.failedCount}` : ""
+            }.`
+          );
+        }
+        router.refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    void tick();
+    pollRef.current = setInterval(() => {
+      void tick();
+    }, 2000);
+  }
 
   async function sync() {
     setLoading(true);
     setMessage(null);
     setError(null);
+    setJobId(null);
+    stopPoll();
     try {
       const res = await fetch("/api/orders/trendyol/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          status: statusFilter?.trim() || undefined
+          status: statusFilter?.trim() || undefined,
+          full: false
         })
       });
       const data = await safeParseJsonResponse(res);
       if (!res.ok || !data || (data as { success?: boolean }).success !== true) {
-        setError((data as { error?: string })?.error ?? "Senkron başarısız.");
+        setError((data as { error?: string })?.error ?? "Senkron başlatılamadı.");
+        setLoading(false);
         return;
       }
-      const upserted = (data as { upsertedPackages?: number }).upsertedPackages ?? 0;
-      setMessage(`Senkron tamam. Güncellenen paket: ${upserted}.`);
-      router.refresh();
-    } finally {
+      const id = (data as { jobId?: string }).jobId;
+      const msg = (data as { message?: string }).message;
+      setMessage(msg ?? "Senkron başlatıldı…");
+      if (id) {
+        setJobId(id);
+        void pollJob(id);
+      } else {
+        setLoading(false);
+      }
+    } catch {
+      setError("İstek başarısız.");
       setLoading(false);
     }
   }
@@ -47,8 +114,13 @@ export function OrdersTrendyolSyncButton({ statusFilter }: Props) {
         disabled={loading}
         onClick={() => void sync()}
       >
-        {loading ? "Senkronize ediliyor..." : "Trendyol — Senkron Et"}
+        {loading ? "Senkron kuyrukta / çalışıyor…" : "Trendyol — Senkron Et"}
       </button>
+      {jobId && loading && (
+        <span className="max-w-xs text-right text-[10px] text-slate-500">
+          İş no: <span className="font-mono text-slate-400">{jobId.slice(0, 8)}…</span>
+        </span>
+      )}
       {message && <span className="text-xs text-emerald-400">{message}</span>}
       {error && <span className="text-xs text-red-400">{error}</span>}
     </div>

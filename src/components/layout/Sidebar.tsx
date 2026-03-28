@@ -1,79 +1,152 @@
-import Link from "next/link";
-import { auth } from "@/lib/auth";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { hasPermission } from "@/lib/permissionClient";
+import {
+  isGroup,
+  sidebarMenuConfig,
+  type SidebarMenuGroup,
+  type SidebarMenuItem,
+  type SidebarMenuLeaf
+} from "@/components/layout/sidebar-menu-config";
+import { SidebarGroupItem, SidebarLeafItem } from "@/components/layout/SidebarGroupItem";
 
-type NavItem = {
-  href: string;
-  label: string;
-  /** Tanımlı değilse tüm mağaza üyelerine görünür. */
-  permission?: string;
-};
+function canAccessLeaf(
+  leaf: SidebarMenuLeaf,
+  permissionKeys: string[],
+  isSystemAdmin: boolean
+) {
+  if (leaf.systemAdminOnly && !isSystemAdmin) return false;
+  if (leaf.permission && !hasPermission(permissionKeys, leaf.permission)) return false;
+  return true;
+}
 
-const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/orders", label: "Siparişler", permission: "orders.view" },
-  { href: "/products", label: "Ürünler", permission: "products.view" },
-  { href: "/imports", label: "Dosya İçe Aktar", permission: "imports.manage" },
-  { href: "/xml-feeds", label: "XML Beslemeler", permission: "feeds.manage" },
-  {
-    href: "/trendyol/publish-readiness",
-    label: "Trendyol yayın hazırlık",
-    permission: "marketplace.publish"
-  },
-  {
-    href: "/trendyol/publish-jobs",
-    label: "Trendyol batch işleri",
-    permission: "marketplace.publish"
-  },
-  { href: "/products/health", label: "Ürün Sağlık", permission: "products.view" },
-  { href: "/ai-product", label: "AI Ürün Oluştur", permission: "products.create" },
-  { href: "/settings", label: "Ayarlar", permission: "store.settings.manage" },
-  { href: "/store", label: "Mağaza" }
-];
+function matchesPath(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
-export async function Sidebar() {
-  const session = await auth();
-  const permissionKeys = session?.permissionKeys ?? [];
+function filterMenu(
+  items: SidebarMenuItem[],
+  permissionKeys: string[],
+  isSystemAdmin: boolean
+): SidebarMenuItem[] {
+  const result: SidebarMenuItem[] = [];
+  for (const item of items) {
+    if (isGroup(item)) {
+      const children = item.children.filter((c) =>
+        canAccessLeaf(c, permissionKeys, isSystemAdmin)
+      );
+      if (children.length > 0) {
+        result.push({ ...item, children });
+      }
+      continue;
+    }
+    if (canAccessLeaf(item, permissionKeys, isSystemAdmin)) {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+function collectAutoOpenGroupKeys(items: SidebarMenuItem[], pathname: string) {
+  const keys = new Set<string>();
+  for (const item of items) {
+    if (isGroup(item) && item.children.some((c) => matchesPath(pathname, c.href))) {
+      keys.add(item.key);
+    }
+  }
+  return keys;
+}
+
+export function Sidebar() {
+  const pathname = usePathname();
+  const { data: session } = useSession();
+  const permissionKeys = (session?.permissionKeys as string[] | undefined) ?? [];
   const isSystemAdmin = Boolean((session as any)?.isSystemAdmin);
-  const canManageUsers = hasPermission(permissionKeys, "store.users.manage");
-  const canManageRbac = hasPermission(permissionKeys, "store.rbac.manage");
 
-  const filteredNav = navItems.filter((item) =>
-    item.permission ? hasPermission(permissionKeys, item.permission) : true
+  const menu = useMemo(
+    () => filterMenu(sidebarMenuConfig, permissionKeys, isSystemAdmin),
+    [permissionKeys, isSystemAdmin]
   );
 
-  const withUsers = [
-    ...filteredNav,
-    ...(canManageRbac
-      ? [{ href: "/store/permissions", label: "Yetki yönetimi" as const }]
-      : []),
-    ...(canManageUsers
-      ? [{ href: "/store/users", label: "Mağaza Kullanıcıları" as const }]
-      : []),
-    ...(isSystemAdmin
-      ? [
-          { href: "/admin/system-connections", label: "Sistem Bağlantıları" as const },
-          { href: "/admin/reference-sync", label: "Referans Sync Yönetimi" as const }
-        ]
-      : [])
-  ];
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const autoOpen = collectAutoOpenGroupKeys(menu, pathname);
+    setOpenGroups((prev) => {
+      const next = { ...prev };
+      for (const key of autoOpen) next[key] = true;
+      return next;
+    });
+  }, [menu, pathname]);
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r border-slate-800 bg-sidebar text-slate-100">
-      <div className="px-6 py-4 text-sm font-semibold">
-        Maprithm Ticaret AI
+    <aside className="sticky top-0 flex h-screen w-72 flex-col border-r border-white/10 bg-[#090f1d]/85 text-slate-100 shadow-[0_0_120px_-60px_rgba(59,130,246,0.4)] backdrop-blur-2xl">
+      <div className="px-6 py-5">
+        <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-indigo-500/25 via-violet-500/15 to-cyan-400/15 px-4 py-3 shadow-[0_16px_40px_-22px_rgba(99,102,241,0.8)]">
+          <div className="absolute -right-4 -top-4 h-14 w-14 rounded-full bg-white/20 blur-xl" />
+          <div className="relative text-[11px] uppercase tracking-[0.2em] text-indigo-100/90">
+            Maprithm
+          </div>
+          <div className="relative mt-1 text-sm font-semibold text-white">Commerce AI OS</div>
+          <div className="relative mt-1 text-[11px] text-slate-200/80">
+            Premium Commerce Workspace
+          </div>
+        </div>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-2">
-        {withUsers.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="block rounded-lg px-3 py-2 text-sm text-slate-200 hover:bg-slate-800"
-          >
-            {item.label}
-          </Link>
-        ))}
+
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+        {menu.map((item) => {
+          if (!isGroup(item)) {
+            return (
+              <SidebarLeafItem
+                key={item.key}
+                item={item}
+                active={matchesPath(pathname, item.href)}
+              />
+            );
+          }
+
+          const group = item as SidebarMenuGroup;
+          const groupActive = group.children.some((c) => matchesPath(pathname, c.href));
+          const isOpen = Boolean(openGroups[group.key]);
+
+          return (
+            <SidebarGroupItem
+              key={group.key}
+              label={group.label}
+              icon={group.icon}
+              active={groupActive}
+              open={isOpen}
+              onToggle={() =>
+                setOpenGroups((prev) => ({ ...prev, [group.key]: !prev[group.key] }))
+              }
+            >
+              {group.children.map((child) => (
+                <SidebarLeafItem
+                  key={child.key}
+                  item={child}
+                  nested
+                  active={matchesPath(pathname, child.href)}
+                />
+              ))}
+            </SidebarGroupItem>
+          );
+        })}
       </nav>
+
+      <div className="px-4 pb-4">
+        <div className="rounded-xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-3">
+          <div className="text-xs text-slate-400">Sistem durumu</div>
+          <div className="mt-1 flex items-center gap-2 text-xs text-emerald-300">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            Çevrimiçi
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }

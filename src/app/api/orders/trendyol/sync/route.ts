@@ -1,12 +1,94 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createActivityLog } from "@/lib/activityLog";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
-import { syncTrendyolOrdersForStore } from "@/lib/trendyolOrderSync";
+import { enqueueOrderSyncJob } from "@/lib/trendyolOrderBackgroundSync";
+import { triggerOrderSyncProcessing } from "@/lib/trendyolOrderSyncTrigger";
 
 type Body = {
   status?: unknown;
+  orderByField?: unknown;
+  orderByDirection?: unknown;
+  full?: unknown;
 };
+
+export async function GET(request: Request) {
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ success: false, error: msg }, { status: 401 });
+  }
+
+  try {
+    requirePermission(ctx, "orders.view");
+  } catch {
+    return NextResponse.json({ success: false, error: "Erişim yok." }, { status: 403 });
+  }
+
+  const url = new URL(request.url);
+  const jobId = url.searchParams.get("jobId")?.trim() ?? "";
+
+  const state = await prisma.storeOrderSyncState.findUnique({
+    where: {
+      storeId_platform: { storeId: ctx.storeId, platform: "trendyol" }
+    }
+  });
+
+  const jobs = await prisma.orderSyncJob.findMany({
+    where: {
+      storeId: ctx.storeId,
+      platform: "trendyol",
+      ...(jobId ? { id: jobId } : {})
+    },
+    orderBy: { createdAt: "desc" },
+    take: jobId ? 1 : 10,
+    select: {
+      id: true,
+      syncType: true,
+      status: true,
+      startedAt: true,
+      finishedAt: true,
+      packagesFetchedCount: true,
+      packagesCreatedCount: true,
+      packagesUpdatedCount: true,
+      failedCount: true,
+      errorMessage: true,
+      attemptCount: true,
+      createdAt: true
+    }
+  });
+
+  const running = await prisma.orderSyncJob.findFirst({
+    where: {
+      storeId: ctx.storeId,
+      platform: "trendyol",
+      status: "running"
+    },
+    select: { id: true, syncType: true, startedAt: true }
+  });
+
+  const latestFailed = await prisma.orderSyncJob.findFirst({
+    where: {
+      storeId: ctx.storeId,
+      platform: "trendyol",
+      status: "failed"
+    },
+    orderBy: { finishedAt: "desc" },
+    select: { id: true, finishedAt: true, errorMessage: true }
+  });
+
+  return NextResponse.json({
+    success: true,
+    state,
+    jobs,
+    running,
+    latestFailed
+  });
+}
 
 export async function POST(request: Request) {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -35,64 +117,39 @@ export async function POST(request: Request) {
   const status = (statusFromQuery?.trim() || statusFromBody || undefined) as
     | string
     | undefined;
-
-  const anyPrisma = prisma as unknown as {
-    marketplaceOrder?: unknown;
-    marketplaceOrderEvent?: { create: (...args: unknown[]) => Promise<unknown> };
-  };
-  if (!anyPrisma.marketplaceOrder || !anyPrisma.marketplaceOrderEvent) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Sipariş modelleri henüz Prisma client'a yüklenmedi. `npx prisma generate` ve sunucu yeniden başlatma gerekli."
-      },
-      { status: 503 }
-    );
-  }
+  const orderByField =
+    typeof body?.orderByField === "string" ? body.orderByField.trim() : undefined;
+  const orderByDirection =
+    body?.orderByDirection === "ASC" || body?.orderByDirection === "DESC"
+      ? body.orderByDirection
+      : undefined;
+  const fullSync = body?.full === true;
 
   try {
-    const result = await syncTrendyolOrdersForStore({
-      userId: ctx.userId,
+    const { job } = await enqueueOrderSyncJob({
       storeId: ctx.storeId,
+      syncType: "manual",
+      triggeredByUserId: ctx.userId,
       membershipId: ctx.membershipId,
-      status
+      options: {
+        status,
+        orderByField,
+        orderByDirection,
+        pullKind: fullSync ? "full" : "incremental"
+      }
     });
+
+    await triggerOrderSyncProcessing(request.url);
 
     return NextResponse.json({
       success: true,
-      upsertedPackages: result.upsertedPackages
+      jobId: job.id,
+      message: "Senkron kuyruğa alındı. Birkaç saniye içinde işlenecek."
     });
   } catch (err) {
-    console.error("Trendyol order sync failed", err);
+    console.error("Trendyol order sync enqueue failed", err);
     const message =
-      err instanceof Error ? err.message : "Trendyol sipariş senkronu başarısız.";
-
-    await createActivityLog({
-      userId: ctx.userId,
-      storeId: ctx.storeId,
-      membershipId: ctx.membershipId,
-      action: "TRENDYOL_ORDER_SYNC_FAILED",
-      entityType: "marketplace_order",
-      message
-    });
-
-    try {
-      await anyPrisma.marketplaceOrderEvent.create({
-        data: {
-          storeId: ctx.storeId,
-          orderId: null,
-          action: "TRENDYOL_ORDER_SYNC_FAILED",
-          message
-        }
-      });
-    } catch {
-      // ignore
-    }
-
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 502 }
-    );
+      err instanceof Error ? err.message : "Senkron kuyruğa alınamadı.";
+    return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }

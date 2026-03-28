@@ -179,7 +179,8 @@ export async function trendyolPostJson<TResponse = unknown>(
   userId: string,
   storeId: string,
   path: string,
-  body: unknown
+  body: unknown,
+  options?: TrendyolFetchOptions
 ): Promise<TrendyolFetchResult<TResponse>> {
   const { credentials, clientIp, agentName } =
     await getCredentialsForUser({ userId, storeId });
@@ -205,7 +206,8 @@ export async function trendyolPostJson<TResponse = unknown>(
         "x-correlationid": correlationId,
         "x-agentname": agentName,
         Accept: "application/json",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...(options?.extraHeaders ?? {})
       },
       body: JSON.stringify(body),
       cache: "no-store"

@@ -3,10 +3,12 @@ import { createActivityLog } from "@/lib/activityLog";
 import { asRecord } from "@/lib/trendyolOrderNormalize";
 import {
   TRENDYOL_ORDER_INGEST_SOURCE,
+  type TrendyolOrderIngestSource,
   upsertTrendyolShipmentPackageForStore
 } from "@/lib/trendyolOrderIngestFromPackage";
 import {
   fetchTrendyolShipmentPackages,
+  type FetchTrendyolShipmentPackagesParams,
   type TrendyolOrdersPageResponse
 } from "@/lib/trendyolShipmentPackages";
 
@@ -30,25 +32,78 @@ function extractTotalPages(data: TrendyolOrdersPageResponse): number {
   return 1;
 }
 
+export type OrderSyncPullMode =
+  | "incremental_last_modified"
+  | "full_order_date_windows"
+  | "reconcile_order_date";
+
+export type RunTrendyolOrderSyncPullParams = {
+  userId: string;
+  storeId: string;
+  membershipId: string | null;
+  status?: string;
+  orderByField?: string;
+  orderByDirection?: "ASC" | "DESC";
+  ingestSource: TrendyolOrderIngestSource;
+  activityContext?: { userId: string; membershipId?: string | null };
+  mode: OrderSyncPullMode;
+  rangeStartMs: number;
+  rangeEndMs: number;
+  /** Paket bazlı hata olursa devam et (job istatistiği için) */
+  continueOnPackageError?: boolean;
+};
+
+export type RunTrendyolOrderSyncPullResult = {
+  fetched: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+};
+
 async function fetchAllPackagesInWindow(params: {
   userId: string;
   storeId: string;
-  startDate: number;
-  endDate: number;
+  mode: OrderSyncPullMode;
+  windowStart: number;
+  windowEnd: number;
   status?: string;
+  orderByField?: string;
+  orderByDirection?: "ASC" | "DESC";
 }): Promise<unknown[]> {
   const out: unknown[] = [];
   let page = 0;
   let totalPages = 1;
+  const orderByField =
+    params.orderByField ??
+    (params.mode === "incremental_last_modified" ? "PackageLastModifiedDate" : "PackageLastModifiedDate");
+  const orderByDirection = params.orderByDirection ?? "DESC";
 
   while (page < totalPages && page < MAX_PAGES_PER_WINDOW) {
-    const res = await fetchTrendyolShipmentPackages(params.userId, params.storeId, {
-      startDate: params.startDate,
-      endDate: params.endDate,
-      status: params.status,
-      page,
-      size: 50
-    });
+    let req: FetchTrendyolShipmentPackagesParams;
+    if (params.mode === "incremental_last_modified") {
+      req = {
+        lastModifiedStartDate: params.windowStart,
+        lastModifiedEndDate: params.windowEnd,
+        status: params.status,
+        orderByField,
+        orderByDirection,
+        page,
+        size: 50
+      };
+    } else {
+      req = {
+        startDate: params.windowStart,
+        endDate: params.windowEnd,
+        status: params.status,
+        orderByField,
+        orderByDirection,
+        page,
+        size: 50
+      };
+    }
+
+    const res = await fetchTrendyolShipmentPackages(params.userId, params.storeId, req);
     if (!res.ok) {
       throw new Error(res.message);
     }
@@ -62,19 +117,143 @@ async function fetchAllPackagesInWindow(params: {
   return out;
 }
 
+/**
+ * Tek pencerede sipariş numarasına göre paket çek (reconciliation).
+ */
+export async function fetchTrendyolPackagesByOrderNumber(params: {
+  userId: string;
+  storeId: string;
+  orderNumber: string;
+  startDateMs: number;
+  endDateMs: number;
+  status?: string;
+}): Promise<unknown[]> {
+  const out: unknown[] = [];
+  let page = 0;
+  let totalPages = 1;
+  while (page < totalPages && page < MAX_PAGES_PER_WINDOW) {
+    const res = await fetchTrendyolShipmentPackages(params.userId, params.storeId, {
+      orderNumber: params.orderNumber,
+      startDate: params.startDateMs,
+      endDate: params.endDateMs,
+      status: params.status,
+      orderByField: "PackageLastModifiedDate",
+      orderByDirection: "DESC",
+      page,
+      size: 50
+    });
+    if (!res.ok) throw new Error(res.message);
+    const data = res.data;
+    const chunk = extractPageContent(data);
+    if (chunk.length === 0) break;
+    out.push(...chunk);
+    totalPages = extractTotalPages(data);
+    page += 1;
+  }
+  return out;
+}
+
+export async function runTrendyolOrderSyncPull(
+  p: RunTrendyolOrderSyncPullParams
+): Promise<RunTrendyolOrderSyncPullResult> {
+  const result: RunTrendyolOrderSyncPullResult = {
+    fetched: 0,
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0
+  };
+  const cont = p.continueOnPackageError !== false;
+
+  async function ingestPackages(packages: unknown[]) {
+    for (const item of packages) {
+      result.fetched += 1;
+      const raw = asRecord(item);
+      if (!raw) {
+        result.skipped += 1;
+        continue;
+      }
+      try {
+        const u = await upsertTrendyolShipmentPackageForStore(prisma, {
+          storeId: p.storeId,
+          raw,
+          ingestSource: p.ingestSource,
+          activityContext: p.activityContext ?? {
+            userId: p.userId,
+            membershipId: p.membershipId
+          }
+        });
+        if (u.wasNew) result.created += 1;
+        else result.updated += 1;
+      } catch (err) {
+        result.failed += 1;
+        if (!cont) throw err;
+      }
+    }
+  }
+
+  if (p.mode === "incremental_last_modified") {
+    let windowEnd = p.rangeEndMs;
+    const startFloor = p.rangeStartMs;
+    while (windowEnd > startFloor) {
+      const windowStart = Math.max(startFloor, windowEnd - WINDOW_DAYS * MS_DAY);
+      const packages = await fetchAllPackagesInWindow({
+        userId: p.userId,
+        storeId: p.storeId,
+        mode: p.mode,
+        windowStart,
+        windowEnd,
+        status: p.status,
+        orderByField: p.orderByField,
+        orderByDirection: p.orderByDirection
+      });
+      await ingestPackages(packages);
+      windowEnd = windowStart - 1;
+    }
+    return result;
+  }
+
+  /* full_order_date_windows | reconcile_order_date */
+  let windowEnd = p.rangeEndMs;
+  const startFloor = p.rangeStartMs;
+  while (windowEnd > startFloor) {
+    const windowStart = Math.max(startFloor, windowEnd - WINDOW_DAYS * MS_DAY);
+    const packages = await fetchAllPackagesInWindow({
+      userId: p.userId,
+      storeId: p.storeId,
+      mode: "full_order_date_windows",
+      windowStart,
+      windowEnd,
+      status: p.status,
+      orderByField: p.orderByField,
+      orderByDirection: p.orderByDirection
+    });
+    await ingestPackages(packages);
+    windowEnd = windowStart - 1;
+  }
+
+  return result;
+}
+
 export type SyncTrendyolOrdersResult = {
   upsertedPackages: number;
 };
 
+/**
+ * @deprecated Job tabanlı senkron kullanın. Geriye dönük çağrılar için tam pencere senkronu.
+ */
 export async function syncTrendyolOrdersForStore(params: {
   userId: string;
   storeId: string;
   membershipId: string;
   status?: string;
+  orderByField?: string;
+  orderByDirection?: "ASC" | "DESC";
+  updatedAfterMs?: number;
 }): Promise<SyncTrendyolOrdersResult> {
   const { userId, storeId, membershipId, status } = params;
   const now = Date.now();
-  const start30 = now - SYNC_RANGE_DAYS * MS_DAY;
+  const start30 = params.updatedAfterMs ?? now - SYNC_RANGE_DAYS * MS_DAY;
 
   await createActivityLog({
     userId,
@@ -89,38 +268,27 @@ export async function syncTrendyolOrdersForStore(params: {
     data: {
       storeId,
       orderId: null,
-      action: "TRENDYOL_ORDER_SYNC_STARTED",
-      message: `Son ${SYNC_RANGE_DAYS} gün, status=${status ?? "tümü"}`
+      action: "ORDER_SYNCED",
+      message: `Tam senkron başladı (son ${SYNC_RANGE_DAYS} gün, status=${status ?? "tümü"})`
     }
   });
 
-  let upserted = 0;
+  const pull = await runTrendyolOrderSyncPull({
+    userId,
+    storeId,
+    membershipId,
+    status,
+    orderByField: params.orderByField,
+    orderByDirection: params.orderByDirection,
+    ingestSource: TRENDYOL_ORDER_INGEST_SOURCE.MANUAL_SYNC,
+    activityContext: { userId, membershipId },
+    mode: "full_order_date_windows",
+    rangeStartMs: start30,
+    rangeEndMs: now,
+    continueOnPackageError: true
+  });
 
-  let windowEnd = now;
-  while (windowEnd > start30) {
-    const windowStart = Math.max(start30, windowEnd - WINDOW_DAYS * MS_DAY);
-    const packages = await fetchAllPackagesInWindow({
-      userId,
-      storeId,
-      startDate: windowStart,
-      endDate: windowEnd,
-      status
-    });
-
-    for (const item of packages) {
-      const raw = asRecord(item);
-      if (!raw) continue;
-
-      await upsertTrendyolShipmentPackageForStore(prisma, {
-        storeId,
-        raw,
-        ingestSource: TRENDYOL_ORDER_INGEST_SOURCE.MANUAL_SYNC
-      });
-      upserted += 1;
-    }
-
-    windowEnd = windowStart - 1;
-  }
+  const upserted = pull.created + pull.updated;
 
   await createActivityLog({
     userId,
@@ -135,8 +303,8 @@ export async function syncTrendyolOrdersForStore(params: {
     data: {
       storeId,
       orderId: null,
-      action: "TRENDYOL_ORDER_SYNC_COMPLETED",
-      message: `Paket sayısı: ${upserted}`
+      action: "ORDER_SYNCED",
+      message: `Senkron bitti: çekilen ${pull.fetched}, yeni ${pull.created}, güncellenen ${pull.updated}, atlanan ${pull.skipped}, hata ${pull.failed}`
     }
   });
 

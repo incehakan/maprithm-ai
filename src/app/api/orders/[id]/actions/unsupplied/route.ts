@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createActivityLog } from "@/lib/activityLog";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
-import {
-  updatePackageStatus,
-  type TrendyolPackageActionPayload
-} from "@/lib/trendyolOrderActions";
+import { sendUnsuppliedToTrendyol } from "@/lib/trendyolOrderOperations";
+import { TRENDYOL_ORDER_INGEST_SOURCE } from "@/lib/trendyolOrderIngestFromPackage";
 import { Prisma } from "@prisma/client";
+import {
+  logOrderOperationCompleted,
+  logOrderOperationFailed,
+  logOrderOperationStarted
+} from "@/lib/trendyolOrderOperationLog";
 
 type Params = { params: { id: string } };
 
@@ -27,7 +29,7 @@ export async function POST(request: Request, { params }: Params) {
 
   const order = await prisma.marketplaceOrder.findFirst({
     where: { id: params.id, storeId: ctx.storeId },
-    select: { id: true, shipmentPackageId: true }
+    select: { id: true, shipmentPackageId: true, packageStatus: true }
   });
 
   if (!order) {
@@ -35,7 +37,10 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const body = (await request.json().catch(() => null)) as
-    | { reasonId?: unknown }
+    | {
+        reasonId?: unknown;
+        lines?: Array<{ lineId?: string | null; quantity?: number | null }>;
+      }
     | null;
   const reasonId =
     typeof body?.reasonId === "number"
@@ -44,56 +49,65 @@ export async function POST(request: Request, { params }: Params) {
         ? Number(body.reasonId)
         : undefined;
 
-  const payload: TrendyolPackageActionPayload = {
-    ...(reasonId != null && Number.isFinite(reasonId) ? { reasonId } : {})
-  };
-  const status = "Unsupplied" as const;
+  const lines = Array.isArray(body?.lines) ? body.lines : undefined;
 
-  await createActivityLog({
-    userId: ctx.userId,
-    storeId: ctx.storeId,
-    membershipId: ctx.membershipId,
-    action: "TRENDYOL_ORDER_ACTION_SENT",
-    entityType: "marketplace_order",
-    entityId: order.id,
-    message: `Trendyol paket aksiyonu gönderildi: ${status} (packageId=${order.shipmentPackageId})`
-  });
+  await logOrderOperationStarted(
+    ctx,
+    order.id,
+    order.shipmentPackageId,
+    "Unsupplied",
+    {
+      ...(reasonId != null && Number.isFinite(reasonId) ? { reasonId } : {}),
+      ...(lines ? { lines } : {})
+    }
+  );
 
   try {
-    const result = await updatePackageStatus(
-      ctx.userId,
-      ctx.storeId,
-      order.shipmentPackageId,
-      status,
-      payload
-    );
+    const result = await sendUnsuppliedToTrendyol({
+      userId: ctx.userId,
+      storeId: ctx.storeId,
+      shipmentPackageId: order.shipmentPackageId,
+      ...(reasonId != null && Number.isFinite(reasonId) ? { reasonId } : {}),
+      ...(lines ? { lines } : {})
+    });
 
     await prisma.marketplaceOrder.update({
       where: { id: order.id },
-      data: { packageStatus: result.sentStatus, lastFetchedAt: new Date() }
+      data: {
+        packageStatus: result.sentStatus,
+        lastFetchedAt: new Date(),
+        packageStatusUpdatedAt: new Date(),
+        lastIngestSource: TRENDYOL_ORDER_INGEST_SOURCE.OPERATION
+      }
     });
 
     await prisma.marketplaceOrderEvent.create({
       data: {
         storeId: ctx.storeId,
         orderId: order.id,
-        action: `TRENDYOL_ORDER_ACTION_${result.sentStatus}`,
-        message: `Paket durumu güncellendi: ${result.sentStatus}`,
+        action: "UNSUPPLIED_SENT",
+        message: "Unsupplied işlemi Trendyol'a gönderildi.",
+        previousStatus: order.packageStatus,
+        nextStatus: result.sentStatus,
+        relatedShipmentPackageId: order.shipmentPackageId,
         rawData: (result.trendyolData ?? Prisma.JsonNull) as Prisma.InputJsonValue
       }
     });
+    await logOrderOperationCompleted(ctx, order.id, "Unsupplied", result.trendyolData);
 
     return NextResponse.json({ success: true, packageStatus: result.sentStatus });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Trendyol aksiyonu başarısız.";
-    await createActivityLog({
-      userId: ctx.userId,
-      storeId: ctx.storeId,
-      membershipId: ctx.membershipId,
-      action: "TRENDYOL_ORDER_ACTION_FAILED",
-      entityType: "marketplace_order",
-      entityId: order.id,
-      message
+    await logOrderOperationFailed(ctx, order.id, "Unsupplied", message);
+    await prisma.marketplaceOrderEvent.create({
+      data: {
+        storeId: ctx.storeId,
+        orderId: order.id,
+        action: "ORDER_OPERATION_FAILED",
+        message,
+        relatedShipmentPackageId: order.shipmentPackageId,
+        rawData: Prisma.JsonNull
+      }
     });
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }

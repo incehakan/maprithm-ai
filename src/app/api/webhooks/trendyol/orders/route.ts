@@ -7,6 +7,10 @@ import {
   upsertTrendyolShipmentPackageForStore
 } from "@/lib/trendyolOrderIngestFromPackage";
 import { parseTrendyolOrderWebhookPayload } from "@/lib/trendyolOrderWebhookPayload";
+import {
+  enqueueOrderSyncJob,
+  processOrderSyncQueue
+} from "@/lib/trendyolOrderBackgroundSync";
 
 export const dynamic = "force-dynamic";
 
@@ -131,7 +135,8 @@ export async function POST(request: Request) {
         await upsertTrendyolShipmentPackageForStore(prisma, {
           storeId,
           raw: pkg,
-          ingestSource: TRENDYOL_ORDER_INGEST_SOURCE.WEBHOOK
+          ingestSource: TRENDYOL_ORDER_INGEST_SOURCE.WEBHOOK,
+          activityContext: { userId, membershipId: membership?.id ?? null }
         });
       shipmentIds.push(shipmentPackageId);
 
@@ -154,6 +159,39 @@ export async function POST(request: Request) {
       entityType: "marketplace_order",
       message: `Trendyol webhook işlendi. Paket: ${shipmentIds.join(", ")}`
     });
+
+    await prisma.storeOrderSyncState.upsert({
+      where: {
+        storeId_platform: { storeId, platform: "trendyol" }
+      },
+      create: {
+        storeId,
+        platform: "trendyol",
+        lastWebhookSeenAt: new Date()
+      },
+      update: { lastWebhookSeenAt: new Date() }
+    });
+
+    const recentReconcile = await prisma.orderSyncJob.findFirst({
+      where: {
+        storeId,
+        platform: "trendyol",
+        syncType: "webhook_reconcile",
+        createdAt: { gte: new Date(Date.now() - 8 * 60 * 1000) }
+      },
+      select: { id: true }
+    });
+    if (!recentReconcile) {
+      await enqueueOrderSyncJob({
+        storeId,
+        syncType: "webhook_reconcile",
+        triggeredByUserId: userId,
+        membershipId: membership?.id ?? null,
+        options: { pullKind: "reconcile" }
+      });
+    }
+
+    await processOrderSyncQueue({ maxJobs: 8 });
 
     return NextResponse.json({
       success: true,

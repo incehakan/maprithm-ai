@@ -65,7 +65,48 @@ export type TrendyolPackageActionPayload = {
   lines?: Array<{ lineId?: string | null; quantity?: number | null }>;
   // optional invoice number for Invoiced
   invoiceNumber?: string;
+  invoiceLink?: string;
+  invoiceDateTime?: string;
 };
+
+export async function sendInvoiceLinkForPackage(
+  userId: string,
+  storeId: string,
+  shipmentPackageId: string,
+  payload: {
+    invoiceLink: string;
+    invoiceNumber: string;
+    invoiceDateTime: string;
+  }
+): Promise<{ trendyolData: unknown }> {
+  const conn = await prisma.marketplaceConnection.findFirst({
+    where: { storeId, platform: "trendyol", isActive: true },
+    select: { sellerId: true }
+  });
+  if (!conn?.sellerId) {
+    throw new Error("Trendyol bağlantısı bulunamadı (sellerId eksik).");
+  }
+  const sellerId = String(conn.sellerId).trim();
+  const storeFrontCode = getTrendyolStorefrontCode();
+
+  const path = `/integration/order/sellers/${encodeURIComponent(
+    sellerId
+  )}/shipment-packages/${encodeURIComponent(shipmentPackageId)}/invoice-link`;
+
+  const res = await trendyolPutJson<unknown>(
+    userId,
+    storeId,
+    path,
+    {
+      invoiceLink: payload.invoiceLink,
+      invoiceNumber: payload.invoiceNumber,
+      invoiceDateTime: payload.invoiceDateTime
+    },
+    { extraHeaders: { storeFrontCode } }
+  );
+  if (!res.ok) throw new Error(res.message);
+  return { trendyolData: res.data };
+}
 
 export async function updatePackageStatus(
   userId: string,

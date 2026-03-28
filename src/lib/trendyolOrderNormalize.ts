@@ -35,6 +35,18 @@ export function normalizePackageStatus(raw: Record<string, unknown>): string | n
   return v != null && String(v) !== "" ? String(v) : null;
 }
 
+export function normalizeCustomerId(raw: Record<string, unknown>): string | null {
+  const v = raw.customerId ?? raw.customerid ?? raw.customerNumber;
+  if (v == null || v === "") return null;
+  return String(v);
+}
+
+export function normalizeDeliveryAddressType(raw: Record<string, unknown>): string | null {
+  const v = raw.deliveryAddressType ?? raw.addressType;
+  if (v == null || v === "") return null;
+  return String(v);
+}
+
 export function normalizeCargoTracking(raw: Record<string, unknown>): string | null {
   const v = raw.cargoTrackingNumber ?? raw.trackingNumber ?? raw.tracking_no;
   if (v == null) return null;
@@ -116,6 +128,12 @@ export function normalizeLineStockCode(line: Record<string, unknown>): string | 
 export function normalizeLineProductName(line: Record<string, unknown>): string | null {
   const v = line.productName ?? line.name ?? line.title;
   return v != null && String(v) !== "" ? String(v) : null;
+}
+
+export function normalizeLineStatus(line: Record<string, unknown>): string | null {
+  const v = line.status ?? line.lineStatus;
+  if (v == null || v === "") return null;
+  return String(v);
 }
 
 export function normalizeLineQuantity(line: Record<string, unknown>): number {

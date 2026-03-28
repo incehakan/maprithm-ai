@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
 import { PermissionGate } from "@/components/auth/PermissionGate";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type SettingsData = {
   companyName: string;
@@ -24,6 +30,9 @@ const CURRENCY_OPTIONS = [
 ];
 
 function SettingsPageContent() {
+  const [activeTab, setActiveTab] = useState<"general" | "pricing" | "export">(
+    "general"
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
@@ -130,10 +139,8 @@ function SettingsPageContent() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Ayarlar</h1>
-          <p className="text-sm text-slate-400">Yükleniyor...</p>
-        </div>
+        <Skeleton className="h-10 w-40" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -147,8 +154,20 @@ function SettingsPageContent() {
         </p>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        <button className={`btn-secondary ${activeTab === "general" ? "!border-indigo-400/50 !bg-indigo-500/20" : ""}`} onClick={() => setActiveTab("general")}>
+          Genel
+        </button>
+        <button className={`btn-secondary ${activeTab === "pricing" ? "!border-indigo-400/50 !bg-indigo-500/20" : ""}`} onClick={() => setActiveTab("pricing")}>
+          Fiyatlandırma
+        </button>
+        <button className={`btn-secondary ${activeTab === "export" ? "!border-indigo-400/50 !bg-indigo-500/20" : ""}`} onClick={() => setActiveTab("export")}>
+          Export
+        </button>
+      </div>
+
       <PermissionGate permission="marketplace.integrations.manage">
-        <div className="card flex flex-col gap-3 border-indigo-500/30 bg-indigo-950/20 sm:flex-row sm:items-center sm:justify-between">
+        <Card className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-sm font-semibold text-slate-100">
               Trendyol Partner API
@@ -159,90 +178,82 @@ function SettingsPageContent() {
           </div>
           <Link
             href="/settings/trendyol"
-            className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+            className="btn-primary"
           >
             Trendyol ayarları →
           </Link>
-        </div>
+        </Card>
       </PermissionGate>
 
       {message && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            message.type === "success"
-              ? "border-emerald-800 bg-emerald-900/30 text-emerald-200"
-              : "border-red-800 bg-red-900/30 text-red-200"
-          }`}
-          role="alert"
-        >
+        <Alert variant={message.type === "success" ? "success" : "error"}>
           {message.text}
-        </div>
+        </Alert>
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Genel Ayarlar */}
-        <div className="card space-y-4">
+        {(activeTab === "general" || activeTab === "export") && (
+          <Card className="space-y-4">
           <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
             Genel Ayarlar
           </h2>
 
           <div>
             <label className="label">Şirket / Mağaza Adı</label>
-            <input
+            <Input
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              className="input"
               placeholder="Örn: Maprithm Ticaret"
             />
           </div>
 
           <div>
             <label className="label">Varsayılan Para Birimi</label>
-            <select
+            <Select
               value={defaultCurrency}
               onChange={(e) => setDefaultCurrency(e.target.value)}
-              className="input"
             >
               {CURRENCY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Varsayılan KDV Oranı (%)</label>
-              <input
+              <Input
                 type="number"
                 min="0"
                 max="100"
                 step="1"
                 value={defaultVatRate}
                 onChange={(e) => setDefaultVatRate(e.target.value)}
-                className="input"
                 placeholder="20"
               />
             </div>
             <div>
               <label className="label">Varsayılan Desi</label>
-              <input
+              <Input
                 type="number"
                 min="0"
                 step="0.1"
                 value={defaultDesi}
                 onChange={(e) => setDefaultDesi(e.target.value)}
-                className="input"
                 placeholder="1"
               />
             </div>
           </div>
-        </div>
+          </Card>
+        )}
 
         {/* Fiyat Önerisi Varsayılanları */}
-        <div className="card space-y-4">
+        {(activeTab === "pricing" || activeTab === "general") && (
+          <Card className="space-y-4">
           <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
             Fiyat Önerisi Varsayılanları
           </h2>
@@ -253,47 +264,46 @@ function SettingsPageContent() {
 
           <div>
             <label className="label">Varsayılan Komisyon Oranı (%)</label>
-            <input
+            <Input
               type="number"
               min="0"
               max="100"
               step="0.1"
               value={defaultCommissionRate}
               onChange={(e) => setDefaultCommissionRate(e.target.value)}
-              className="input"
               placeholder="Örn: 20"
             />
           </div>
 
           <div>
             <label className="label">Varsayılan Kargo Maliyeti (₺)</label>
-            <input
+            <Input
               type="number"
               min="0"
               step="0.01"
               value={defaultCargoCost}
               onChange={(e) => setDefaultCargoCost(e.target.value)}
-              className="input"
               placeholder="Örn: 30"
             />
           </div>
 
           <div>
             <label className="label">Varsayılan Hedef Kâr Oranı (%)</label>
-            <input
+            <Input
               type="number"
               min="0"
               step="1"
               value={defaultTargetProfitRate}
               onChange={(e) => setDefaultTargetProfitRate(e.target.value)}
-              className="input"
               placeholder="Örn: 30"
             />
           </div>
-        </div>
+          </Card>
+        )}
 
         {/* Export Fallback Değerleri */}
-        <div className="card space-y-4 lg:col-span-2">
+        {activeTab === "export" && (
+          <Card className="space-y-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
             Export Fallback Değerleri
           </h2>
@@ -305,11 +315,10 @@ function SettingsPageContent() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Fallback Marka</label>
-              <input
+              <Input
                 type="text"
                 value={fallbackBrand}
                 onChange={(e) => setFallbackBrand(e.target.value)}
-                className="input"
                 placeholder="Örn: Maprithm"
               />
               <p className="text-xs text-slate-500 mt-1">
@@ -318,11 +327,10 @@ function SettingsPageContent() {
             </div>
             <div>
               <label className="label">Fallback Kategori</label>
-              <input
+              <Input
                 type="text"
                 value={fallbackCategory}
                 onChange={(e) => setFallbackCategory(e.target.value)}
-                className="input"
                 placeholder="Örn: Genel"
               />
               <p className="text-xs text-slate-500 mt-1">
@@ -330,18 +338,18 @@ function SettingsPageContent() {
               </p>
             </div>
           </div>
-        </div>
+          </Card>
+        )}
       </div>
 
       <div className="flex justify-end">
-        <button
+        <Button
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="btn-primary px-6"
         >
           {saving ? "Kaydediliyor..." : "Ayarları Kaydet"}
-        </button>
+        </Button>
       </div>
     </div>
   );

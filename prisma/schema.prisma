@@ -1,6 +1,6 @@
 generator client {
   provider = "prisma-client-js"
-  engineType = "binary"
+  engineType = "library"
 }
 
 datasource db {
@@ -59,9 +59,87 @@ model Store {
   marketplaceOrders           MarketplaceOrder[]
   marketplaceOrderLines       MarketplaceOrderLine[]
   marketplaceOrderEvents      MarketplaceOrderEvent[]
+  marketplaceOrderInvoices   MarketplaceOrderInvoice[]
+  marketplaceOrderTrackingEvents MarketplaceOrderTrackingEvent[]
+  marketplaceOrderShippingEvents MarketplaceOrderShippingEvent[]
   storeRolePermissions       StoreRolePermission[]
+  orderSyncJobs              OrderSyncJob[]
+  storeOrderSyncStates       StoreOrderSyncState[]
+  marketplaceReturnClaims     MarketplaceReturnClaim[]
+  marketplaceReturnClaimLines MarketplaceReturnClaimLine[]
+  marketplaceReturnClaimEvents MarketplaceReturnClaimEvent[]
+  trendyolReturnReasons       TrendyolReturnReason[]
 
   @@index([status])
+}
+
+/// Global kargo sağlayıcı referansı (store bağımsız; Trendyol providerCode listesi).
+model MarketplaceCarrierReference {
+  id           String    @id @default(uuid()) @db.Uuid
+  platform     String    @default("trendyol")
+  providerCode String
+  providerName String
+  region       String?
+  isActive     Boolean   @default(true)
+  rawData      Json?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([platform, providerCode])
+  @@index([platform, isActive])
+}
+
+/// Trendyol (veya diğer platform) sipariş senkron işi — izlenebilirlik ve retry.
+model OrderSyncJob {
+  id                   String    @id @default(uuid()) @db.Uuid
+  storeId              String    @db.Uuid
+  store                Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform             String    @default("trendyol")
+  /// manual | cron | webhook_reconcile | retry
+  syncType             String
+  /// queued | running | completed | failed | partial
+  status               String    @default("queued")
+  startedAt            DateTime?
+  finishedAt           DateTime?
+  lastCursorStartDate  DateTime?
+  lastCursorEndDate    DateTime?
+  packagesFetchedCount Int       @default(0)
+  packagesCreatedCount Int       @default(0)
+  packagesUpdatedCount Int       @default(0)
+  packagesSkippedCount Int       @default(0)
+  failedCount          Int       @default(0)
+  errorMessage         String?
+  attemptCount         Int       @default(0)
+  maxAttempts          Int       @default(5)
+  nextRetryAt          DateTime?
+  /// status filtresi, orderBy, incremental vs reconcile bayrakları (JSON)
+  options              Json?
+  triggeredByUserId    String?   @db.Uuid
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([storeId, platform, status, createdAt])
+  @@index([storeId, createdAt])
+}
+
+/// Mağaza bazlı son senkron özeti (cron / manuel / webhook ile güncellenir).
+model StoreOrderSyncState {
+  id                   String    @id @default(uuid()) @db.Uuid
+  storeId              String    @db.Uuid
+  store                Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform             String    @default("trendyol")
+  lastSuccessfulSyncAt DateTime?
+  lastAttemptedSyncAt  DateTime?
+  lastWebhookSeenAt    DateTime?
+  lastReconcileAt      DateTime?
+  lastStatus           String?
+  lastErrorMessage     String?
+  lastJobId            String?   @db.Uuid
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([storeId, platform])
 }
 
 model Role {
@@ -445,11 +523,33 @@ model MarketplaceOrder {
   store               Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
   platform            String    @default("trendyol")
   orderNumber         String
+  /// Trendyol sipariş numarası kökü (split paketlerde üst referans)
+  rootOrderNumber     String
   orderDate           DateTime
   shipmentPackageId   String
+  /// Trendyol tarafında üst paket id (API alanı varsa)
+  parentShipmentPackageId String?
   packageStatus       String?
+  packageStatusUpdatedAt DateTime?
   cargoTrackingNumber String?
+  cargoTrackingLink   String?
+  cargoSenderNumber   String?
   cargoProviderName   String?
+  cargoProviderCode   String?
+  cargoLabelUrl       String?
+  cargoLabelRawData   Json?
+  cargoStatusText     String?
+  cargoLastEventAt    DateTime?
+  cargoLastEventMessage String?
+  trackingRawData     Json?
+  trackingUpdatedAt   DateTime?
+  cargoProviderChangedAt DateTime?
+  labelFetchedAt      DateTime?
+  /// idle | pending | success | error (panel kargo operasyonları özeti)
+  shippingOperationStatus String?
+  shippingOperationLastErrorMessage String?
+  customerId          String?
+  deliveryAddressType String?
   customerFirstName   String?
   customerLastName    String?
   customerEmailMasked String?
@@ -460,18 +560,73 @@ model MarketplaceOrder {
   shipmentAddress     Json?
   rawData             Json?
   lastFetchedAt       DateTime?
-  /// manual_sync | webhook — son başarılı yazımın kaynağı
+  invoiceLink         String?
+  invoiceNumber       String?
+  invoiceDateTime     DateTime?
+  invoiceSentAt       DateTime?
+  /// pending | sent | failed
+  invoiceStatus       String?
+  invoiceLastErrorMessage String?
+  invoiceRawData      Json?
+  /// manual_sync | webhook | operation | split
   lastIngestSource    String?
+  splitFromPackageId  String?   @db.Uuid
+  splitFromPackage    MarketplaceOrder? @relation("OrderPackageSplit", fields: [splitFromPackageId], references: [id], onDelete: SetNull)
+  splitChildPackages  MarketplaceOrder[] @relation("OrderPackageSplit")
+  splitDetectedAt     DateTime?
+  isSplitPackage      Boolean   @default(false)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  lines  MarketplaceOrderLine[]
-  events MarketplaceOrderEvent[]
+  lines    MarketplaceOrderLine[]
+  events   MarketplaceOrderEvent[]
+  invoices       MarketplaceOrderInvoice[]
+  trackingEvents MarketplaceOrderTrackingEvent[]
+  shippingEvents MarketplaceOrderShippingEvent[]
 
   @@unique([storeId, platform, shipmentPackageId])
   @@index([storeId, orderDate])
   @@index([storeId, packageStatus])
   @@index([storeId, orderNumber])
+  @@index([storeId, rootOrderNumber])
+}
+
+model MarketplaceOrderTrackingEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  storeId           String   @db.Uuid
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId           String   @db.Uuid
+  order             MarketplaceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipmentPackageId String
+  eventCode         String?
+  eventTitle        String
+  eventDescription  String?
+  eventDateTime     DateTime?
+  rawData           Json?
+  createdAt         DateTime @default(now())
+
+  @@index([storeId, orderId])
+  @@index([storeId, shipmentPackageId])
+}
+
+model MarketplaceOrderInvoice {
+  id                 String   @id @default(uuid()) @db.Uuid
+  storeId            String   @db.Uuid
+  store              Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId            String   @db.Uuid
+  order              MarketplaceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipmentPackageId  String
+  invoiceNumber      String?
+  invoiceDateTime    DateTime?
+  invoiceLink        String
+  invoiceStatus      String
+  lastErrorMessage   String?
+  rawData            Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([storeId, orderId])
+  @@index([storeId, shipmentPackageId])
 }
 
 model MarketplaceOrderLine {
@@ -488,6 +643,7 @@ model MarketplaceOrderLine {
   lineUnitPrice    Float?
   vatBaseAmount    Float?
   commissionAmount Float?
+  lineStatus       String?
   rawData          Json?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -503,11 +659,32 @@ model MarketplaceOrderEvent {
   order     MarketplaceOrder? @relation(fields: [orderId], references: [id], onDelete: Cascade)
   action    String
   message   String
+  previousStatus String?
+  nextStatus     String?
+  relatedShipmentPackageId String?
   rawData   Json?
   createdAt DateTime @default(now())
 
   @@index([storeId, createdAt])
   @@index([orderId])
+  @@index([storeId, relatedShipmentPackageId])
+}
+
+model MarketplaceOrderShippingEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  storeId           String   @db.Uuid
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderId           String   @db.Uuid
+  order             MarketplaceOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  shipmentPackageId String
+  action            String
+  message           String
+  rawData           Json?
+  createdAt         DateTime @default(now())
+
+  @@index([storeId, orderId])
+  @@index([storeId, shipmentPackageId])
+  @@index([storeId, createdAt])
 }
 
 model TrendyolBrand {
@@ -659,4 +836,92 @@ model ProductMarketplaceAttribute {
 
   @@unique([mappingId, attributeId])
   @@index([storeId, mappingId])
+}
+
+model MarketplaceReturnClaim {
+  id                             String    @id @default(uuid()) @db.Uuid
+  storeId                        String    @db.Uuid
+  store                          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform                       String    @default("trendyol")
+  claimId                        String
+  orderNumber                    String?
+  shipmentPackageId              String?
+  claimDate                      DateTime
+  claimStatus                    String
+  returnReasonId                 String?
+  returnReasonText               String?
+  cargoTrackingNumber            String?
+  cargoProviderName              String?
+  customerFirstName              String?
+  customerLastName               String?
+  totalPrice                     Float?
+  currency                       String    @default("TRY")
+  rejectedPackageInfo            Json?
+  replacementOutboundPackageInfo Json?
+  rawData                        Json?
+  lastFetchedAt                  DateTime?
+  createdAt                      DateTime  @default(now())
+  updatedAt                      DateTime  @updatedAt
+
+  lines  MarketplaceReturnClaimLine[]
+  events MarketplaceReturnClaimEvent[]
+
+  @@unique([storeId, platform, claimId])
+  @@index([storeId, claimStatus])
+  @@index([storeId, orderNumber])
+  @@index([storeId, claimDate])
+}
+
+model MarketplaceReturnClaimLine {
+  id            String   @id @default(uuid()) @db.Uuid
+  storeId       String   @db.Uuid
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  claimIdRef    String   @db.Uuid
+  claim         MarketplaceReturnClaim @relation(fields: [claimIdRef], references: [id], onDelete: Cascade)
+  lineId        String?
+  barcode       String?
+  stockCode     String?
+  productName   String?
+  quantity      Int      @default(1)
+  lineUnitPrice Float?
+  rawData       Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([storeId, claimIdRef])
+}
+
+model MarketplaceReturnClaimEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  storeId         String   @db.Uuid
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  claimRecordId   String   @db.Uuid
+  claim           MarketplaceReturnClaim @relation(fields: [claimRecordId], references: [id], onDelete: Cascade)
+  action          String
+  message         String
+  previousStatus  String?
+  nextStatus      String?
+  rawData         Json?
+  createdAt       DateTime @default(now())
+
+  @@index([storeId, claimRecordId])
+  @@index([storeId, createdAt])
+}
+
+model TrendyolReturnReason {
+  id           String    @id @default(uuid()) @db.Uuid
+  storeId      String    @db.Uuid
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform     String    @default("trendyol")
+  code         String
+  name         String
+  isActive     Boolean   @default(true)
+  category     String    @default("claim_issue")
+  rawData      Json?
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([storeId, platform, category, code])
+  @@index([storeId, category])
 }
