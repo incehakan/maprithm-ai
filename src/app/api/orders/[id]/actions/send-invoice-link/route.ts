@@ -8,6 +8,7 @@ import {
   sendInvoiceLinkToTrendyol,
   validateInvoicePayload
 } from "@/lib/trendyolInvoice";
+import { logger } from "@/lib/logger";
 
 type Params = { params: { id: string } };
 
@@ -26,7 +27,7 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const order = await prisma.marketplaceOrder.findFirst({
-    where: { id: params.id, storeId: ctx.storeId },
+    where: { id: params.id, storeId: ctx.storeId, isTestRecord: false },
     select: {
       id: true,
       shipmentPackageId: true,
@@ -146,6 +147,15 @@ export async function POST(request: Request, { params }: Params) {
         ? e.message
         : "Fatura linki Trendyol tarafına iletilemedi. Bağlantıyı kontrol edin.";
 
+    logger.error("invoice_send_failed", {
+      route: "/api/orders/[id]/actions/send-invoice-link",
+      storeId: ctx.storeId,
+      userId: ctx.userId,
+      membershipId: ctx.membershipId,
+      orderId: order.id,
+      shipmentPackageId: order.shipmentPackageId,
+      error: msg
+    });
     await prisma.marketplaceOrder.update({
       where: { id: order.id, storeId: ctx.storeId },
       data: {

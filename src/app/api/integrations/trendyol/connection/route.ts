@@ -12,6 +12,7 @@ type ConnectionPayload = {
   isActive: boolean;
   shipmentAddressId?: string | null;
   returnAddressId?: string | null;
+  cheSupplierId?: string | null;
 };
 
 function serializeConnection(row: {
@@ -26,6 +27,7 @@ function serializeConnection(row: {
   apiSecretEncrypted: string;
   shipmentAddressId: string | null;
   returnAddressId: string | null;
+  cheSupplierId?: string | null;
 }) {
   let apiKeyMasked = "—";
   let apiSecretMasked = "—";
@@ -50,7 +52,11 @@ function serializeConnection(row: {
     isActive: row.isActive,
     lastTestAt: row.lastTestAt?.toISOString() ?? null,
     shipmentAddressId: row.shipmentAddressId ?? null,
-    returnAddressId: row.returnAddressId ?? null
+    returnAddressId: row.returnAddressId ?? null,
+    cheSupplierId:
+      row.cheSupplierId != null && String(row.cheSupplierId).trim()
+        ? String(row.cheSupplierId).trim()
+        : null
   };
 }
 
@@ -203,6 +209,14 @@ export async function POST(request: Request) {
           ? null
           : String(retIn).trim();
 
+    const cheIn = body.cheSupplierId;
+    const cheSupplierId =
+      cheIn === undefined
+        ? undefined
+        : cheIn === null || (typeof cheIn === "string" && !cheIn.trim())
+          ? null
+          : String(cheIn).trim();
+
     const row = existing
       ? await anyPrisma.marketplaceConnection.update({
           where: { id: existing.id },
@@ -214,7 +228,8 @@ export async function POST(request: Request) {
             environment,
             isActive,
             ...(shipmentAddressId !== undefined && { shipmentAddressId }),
-            ...(returnAddressId !== undefined && { returnAddressId })
+            ...(returnAddressId !== undefined && { returnAddressId }),
+            ...(cheSupplierId !== undefined && { cheSupplierId })
           }
         })
       : await anyPrisma.marketplaceConnection.create({
@@ -229,7 +244,8 @@ export async function POST(request: Request) {
             environment,
             isActive,
             ...(shipmentAddressId !== undefined && { shipmentAddressId }),
-            ...(returnAddressId !== undefined && { returnAddressId })
+            ...(returnAddressId !== undefined && { returnAddressId }),
+            ...(cheSupplierId !== undefined && { cheSupplierId })
           }
         });
 

@@ -5,13 +5,15 @@ import {
   ChevronRight,
   FileUp,
   Gauge,
+  MessageCircle,
   PackageSearch,
   RotateCcw,
   Settings,
   ShieldCheck,
   ShoppingCart,
   Store,
-  Users
+  Users,
+  Wallet
 } from "lucide-react";
 
 export type SidebarMenuLeaf = {
@@ -104,6 +106,20 @@ export const sidebarMenuConfig: SidebarMenuItem[] = [
         label: "Trendyol Batch İşleri",
         href: "/trendyol/publish-jobs",
         permission: "marketplace.publish"
+      },
+      {
+        key: "trendyol-customer-questions",
+        label: "Müşteri soruları",
+        href: "/trendyol/customer-questions",
+        icon: MessageCircle,
+        permission: "trendyol.questions.view"
+      },
+      {
+        key: "trendyol-finance",
+        label: "Cari ekstre (CHE)",
+        href: "/trendyol/finance",
+        icon: Wallet,
+        permission: "trendyol.finance.view"
       }
     ]
   },

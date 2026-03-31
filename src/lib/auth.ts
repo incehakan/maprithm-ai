@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { prisma } from "./prisma";
 import { verifyPassword } from "./password";
 import { resolveActiveStoreContextForUser } from "@/lib/activeStore";
+import { logger } from "@/lib/logger";
 
 export const { auth, signIn, signOut, handlers } = NextAuth({
   providers: [
@@ -27,7 +28,11 @@ export const { auth, signIn, signOut, handlers } = NextAuth({
             where: { email }
           });
         } catch (err) {
-          console.error("auth.authorize user lookup failed", err);
+          logger.error("auth_session_failed", {
+            helper: "auth.authorize",
+            message: "user lookup failed",
+            error: err instanceof Error ? err.message : String(err)
+          });
           return null;
         }
 
@@ -37,7 +42,11 @@ export const { auth, signIn, signOut, handlers } = NextAuth({
         try {
           isValid = await verifyPassword(password, user.password);
         } catch (err) {
-          console.error("auth.authorize password verify failed", err);
+          logger.error("auth_session_failed", {
+            helper: "auth.authorize",
+            message: "password verify failed",
+            error: err instanceof Error ? err.message : String(err)
+          });
           return null;
         }
         if (!isValid) return null;
@@ -89,7 +98,11 @@ export const { auth, signIn, signOut, handlers } = NextAuth({
             token.permissionKeys = [];
           }
         } catch (err) {
-          console.error("auth.jwt active store resolve failed", err);
+          logger.error("auth_session_failed", {
+            helper: "auth.jwt",
+            message: "active store resolve failed",
+            error: err instanceof Error ? err.message : String(err)
+          });
           token.isSystemAdmin = false;
           token.activeStoreId = null;
           token.membershipId = null;

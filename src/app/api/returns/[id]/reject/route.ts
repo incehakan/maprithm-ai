@@ -8,6 +8,7 @@ import {
   refreshTrendyolReturnClaimInDb,
   rejectReturnClaim
 } from "@/lib/trendyolReturns";
+import { logger } from "@/lib/logger";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -44,7 +45,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const storeId = ctx.storeId;
   const claim = await prisma.marketplaceReturnClaim.findFirst({
-    where: { id, storeId }
+    where: { id, storeId, isTestRecord: false }
   });
   if (!claim) {
     return NextResponse.json({ success: false, error: "Kayıt bulunamadı." }, { status: 404 });
@@ -77,6 +78,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   });
 
   if (!res.ok) {
+    logger.error("return_operation_failed", {
+      route: "/api/returns/[id]/reject",
+      storeId,
+      userId: ctx.userId,
+      membershipId: ctx.membershipId,
+      claimId: claim.claimId,
+      operation: "reject",
+      error: res.message
+    });
     await prisma.marketplaceReturnClaimEvent.create({
       data: {
         storeId,
@@ -86,6 +96,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         previousStatus: prev,
         rawData: { operation: "reject", claimIssueReasonId: reasonNum }
       }
+    });
+    await createActivityLog({
+      userId: ctx.userId,
+      storeId,
+      membershipId: ctx.membershipId,
+      action: "TRENDYOL_RETURN_OPERATION_FAILED",
+      entityType: "marketplace_return",
+      entityId: claim.id,
+      message: `İade reddi başarısız: ${claim.claimId} — ${res.message}`
     });
     return NextResponse.json({ success: false, error: res.message }, { status: 502 });
   }

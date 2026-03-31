@@ -7,6 +7,9 @@ import {
   processOrderSyncQueue,
   tickTrendyolOrderBackgroundCron
 } from "@/lib/trendyolOrderBackgroundSync";
+import { logger } from "@/lib/logger";
+import { getRequestId } from "@/lib/requestContext";
+import { logAndBuildApiError } from "@/lib/errorHandling";
 
 export const dynamic = "force-dynamic";
 
@@ -19,21 +22,32 @@ function authorize(request: Request): boolean {
 }
 
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   if (!authorize(request)) {
-    return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+    return NextResponse.json({ error: "Yetkisiz", requestId }, { status: 401 });
   }
   try {
     const result = await tickTrendyolOrderBackgroundCron();
-    return NextResponse.json({ success: true, ...result });
+    logger.info("order_sync_cron_completed", {
+      route: "/api/cron/trendyol-orders-background",
+      requestId
+    });
+    return NextResponse.json({ success: true, ...result, requestId });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Cron hatası";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    const payload = logAndBuildApiError({
+      err: e,
+      fallbackMessage: "Cron hatası",
+      requestId,
+      context: { route: "/api/cron/trendyol-orders-background", job: "order_sync" }
+    });
+    return NextResponse.json(payload, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   if (!authorize(request)) {
-    return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
+    return NextResponse.json({ error: "Yetkisiz", requestId }, { status: 401 });
   }
   try {
     const body = (await request.json().catch(() => ({}))) as {
@@ -41,12 +55,17 @@ export async function POST(request: Request) {
     };
     if (body.processOnly === true) {
       await processOrderSyncQueue({ maxJobs: 20 });
-      return NextResponse.json({ success: true, processOnly: true });
+      return NextResponse.json({ success: true, processOnly: true, requestId });
     }
     const result = await tickTrendyolOrderBackgroundCron();
-    return NextResponse.json({ success: true, ...result });
+    return NextResponse.json({ success: true, ...result, requestId });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Cron hatası";
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    const payload = logAndBuildApiError({
+      err: e,
+      fallbackMessage: "Cron hatası",
+      requestId,
+      context: { route: "/api/cron/trendyol-orders-background", job: "order_sync" }
+    });
+    return NextResponse.json(payload, { status: 500 });
   }
 }

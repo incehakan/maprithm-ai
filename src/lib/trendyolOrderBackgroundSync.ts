@@ -8,11 +8,13 @@ import {
   runTrendyolOrderSyncPull,
   type OrderSyncPullMode
 } from "@/lib/trendyolOrderSync";
+import { logger } from "@/lib/logger";
 
 const MS_DAY = 86_400_000;
 const SYNC_RANGE_DAYS = 30;
 const SYNC_OVERLAP_MS = 15 * 60 * 1000;
 const CRON_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const RUNNING_JOB_MAX_MS = 25 * 60 * 1000;
 
 export type OrderSyncJobOptions = {
   status?: string;
@@ -149,6 +151,84 @@ export async function enqueueOrderSyncJob(params: {
   return { job };
 }
 
+export async function markStuckOrderSyncJobsAsFailed(): Promise<number> {
+  const threshold = new Date(Date.now() - RUNNING_JOB_MAX_MS);
+  const stuck = await prisma.orderSyncJob.findMany({
+    where: {
+      status: "running",
+      OR: [
+        { lockUntil: { lte: new Date() } },
+        { heartbeatAt: { lte: threshold } },
+        { startedAt: { lte: threshold } }
+      ]
+    },
+    select: { id: true, storeId: true, platform: true }
+  });
+  if (stuck.length === 0) return 0;
+
+  for (const job of stuck) {
+    await prisma.orderSyncJob.update({
+      where: { id: job.id },
+      data: {
+        status: "failed",
+        finishedAt: new Date(),
+        errorMessage: "Running timeout exceeded; marked as failed."
+      }
+    });
+    await finalizeJobState({
+      storeId: job.storeId,
+      platform: job.platform,
+      jobId: job.id,
+      status: "failed",
+      errorMessage: "Stuck job timeout",
+      hadSuccess: false
+    });
+  }
+  return stuck.length;
+}
+
+export async function getOrderSyncJobsHealthSnapshot(): Promise<{
+  queued: number;
+  running: number;
+  failedLastHour: number;
+  stuckRunning: number;
+  oldestQueuedAt: string | null;
+}> {
+  const now = Date.now();
+  const [queued, running, failedLastHour, oldestQueued] = await Promise.all([
+    prisma.orderSyncJob.count({ where: { status: "queued" } }),
+    prisma.orderSyncJob.count({ where: { status: "running" } }),
+    prisma.orderSyncJob.count({
+      where: {
+        status: "failed",
+        updatedAt: { gte: new Date(now - 60 * 60 * 1000) }
+      }
+    }),
+    prisma.orderSyncJob.findFirst({
+      where: { status: "queued" },
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true }
+    })
+  ]);
+  const stuckRunning = await prisma.orderSyncJob.count({
+    where: {
+      status: "running",
+      OR: [
+        { lockUntil: { lte: new Date() } },
+        { heartbeatAt: { lte: new Date(now - RUNNING_JOB_MAX_MS) } },
+        { startedAt: { lte: new Date(now - RUNNING_JOB_MAX_MS) } }
+      ]
+    }
+  });
+  return {
+    queued,
+    running,
+    failedLastHour,
+    stuckRunning,
+    oldestQueuedAt: oldestQueued?.createdAt?.toISOString() ?? null
+  };
+}
+
 async function finalizeJobState(params: {
   storeId: string;
   platform: string;
@@ -186,7 +266,12 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
 
   const claim = await prisma.orderSyncJob.updateMany({
     where: { id: jobId, status: "queued" },
-    data: { status: "running", startedAt: new Date() }
+    data: {
+      status: "running",
+      startedAt: new Date(),
+      heartbeatAt: new Date(),
+      lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS)
+    }
   });
   if (claim.count === 0) return;
 
@@ -197,6 +282,8 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
       data: {
         status: "failed",
         finishedAt: new Date(),
+        heartbeatAt: null,
+        lockUntil: null,
         errorMessage: "Aktif Trendyol bağlantısı yok."
       }
     });
@@ -228,6 +315,13 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
       `Senkron işi başladı (${job.syncType}).`,
       jobId
     );
+    await prisma.orderSyncJob.update({
+      where: { id: jobId },
+      data: {
+        heartbeatAt: new Date(),
+        lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS)
+      }
+    });
 
     const now = Date.now();
     let pullResult: Awaited<ReturnType<typeof runTrendyolOrderSyncPull>> | null = null;
@@ -306,6 +400,10 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
         rangeEndMs,
         continueOnPackageError: true
       });
+      await prisma.orderSyncJob.update({
+        where: { id: jobId },
+        data: { heartbeatAt: new Date(), lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS) }
+      });
 
       await prisma.marketplaceOrderEvent.create({
         data: {
@@ -351,6 +449,8 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
       data: {
         status: finalStatus,
         finishedAt: new Date(),
+        heartbeatAt: null,
+        lockUntil: null,
         packagesFetchedCount,
         packagesCreatedCount,
         packagesUpdatedCount,
@@ -390,6 +490,17 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
           : `Senkron tamamlandı (çekilen ${packagesFetchedCount}).`,
       jobId
     );
+    if (finalStatus === "failed") {
+      logger.error("order_sync_failed", {
+        job: "order_sync_queue",
+        storeId: job.storeId,
+        userId,
+        membershipId: membershipId ?? undefined,
+        jobId,
+        failedCount,
+        message: `Senkron başarısız (${failedCount} hata).`
+      });
+    }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (isRetryableError(e) && jobRow.attemptCount < jobRow.maxAttempts) {
@@ -399,6 +510,8 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
             status: "queued",
             startedAt: null,
             finishedAt: null,
+            heartbeatAt: null,
+            lockUntil: null,
             attemptCount: { increment: 1 },
             nextRetryAt: new Date(Date.now() + backoffMs(jobRow.attemptCount)),
             errorMessage: msg
@@ -419,6 +532,8 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
         data: {
           status: "failed",
           finishedAt: new Date(),
+          heartbeatAt: null,
+          lockUntil: null,
           errorMessage: msg
         }
       });
@@ -438,6 +553,15 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
         msg,
         jobId
       );
+      logger.error("order_sync_failed", {
+        job: "order_sync_queue",
+        storeId: job.storeId,
+        userId,
+        membershipId: membershipId ?? undefined,
+        jobId,
+        error: msg,
+        retryable: false
+      });
     }
 
     return;
@@ -449,6 +573,8 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
       data: {
         status: "queued",
         startedAt: null,
+        heartbeatAt: null,
+        lockUntil: null,
         nextRetryAt: new Date(Date.now() + 10_000)
       }
     });
@@ -519,6 +645,7 @@ export async function runReconciliationPass(storeId: string): Promise<void> {
 }
 
 export async function processOrderSyncQueue(opts?: { maxJobs?: number }): Promise<void> {
+  await markStuckOrderSyncJobsAsFailed();
   const take = opts?.maxJobs ?? 12;
   const jobs = await prisma.orderSyncJob.findMany({
     where: {

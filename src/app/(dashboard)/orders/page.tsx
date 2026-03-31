@@ -111,7 +111,10 @@ export default async function OrdersPage({
   }
 
   const canManageOrders = hasPermission(ctx.permissionKeys, "orders.manage");
-  const where: Prisma.MarketplaceOrderWhereInput = { storeId: ctx.storeId };
+  const where: Prisma.MarketplaceOrderWhereInput = {
+    storeId: ctx.storeId,
+    isTestRecord: false
+  };
   if (searchParams.status?.trim()) {
     where.packageStatus = searchParams.status.trim();
   }

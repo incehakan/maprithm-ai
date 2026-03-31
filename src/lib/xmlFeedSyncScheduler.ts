@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * Zamanı gelmiş aktif XML feed'leri senkronize eder (storeId + userId feed kaydından).
@@ -35,7 +36,13 @@ export async function runXmlFeedSchedulerTick(): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("zaten çalışıyor")) continue;
-      console.error(`[xml-feed-scheduler] feed ${feed.id}:`, err);
+      logger.error("xml_sync_failed", {
+        helper: "runXmlFeedSchedulerTick",
+        storeId: feed.storeId,
+        userId: feed.userId,
+        feedId: feed.id,
+        error: msg
+      });
     }
   }
 }

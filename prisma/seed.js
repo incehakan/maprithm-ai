@@ -128,6 +128,26 @@ async function main() {
       key: "store.rbac.manage",
       name: "Yetki ve menü yönetimi",
       description: "Mağaza içinde rol ve kullanıcı izinlerini düzenleme (owner devredebilir)"
+    },
+    {
+      key: "trendyol.questions.view",
+      name: "Trendyol müşteri soruları (görüntüle)",
+      description: "Trendyol ürün sorularını listeleme ve detay (QnA API)"
+    },
+    {
+      key: "trendyol.questions.answer",
+      name: "Trendyol müşteri soruları (yanıtla)",
+      description: "Trendyol müşteri sorusuna cevap gönderme"
+    },
+    {
+      key: "trendyol.finance.view",
+      name: "Trendyol cari ekstre (görüntüle)",
+      description: "CHE settlements/otherfinancials senkron kayıtlarını listeleme"
+    },
+    {
+      key: "trendyol.finance.sync",
+      name: "Trendyol cari ekstre (senkron)",
+      description: "CHE API ile finans satırı çekme ve veritabanına yazma"
     }
   ];
 
@@ -206,7 +226,11 @@ async function main() {
       "orders.view",
       "orders.manage",
       "returns.view",
-      "returns.manage"
+      "returns.manage",
+      "trendyol.questions.view",
+      "trendyol.questions.answer",
+      "trendyol.finance.view",
+      "trendyol.finance.sync"
     ];
     // Owner-only: billing.manage, owner.manage
     const editorPerms = [
@@ -220,7 +244,9 @@ async function main() {
       "marketplace.unpublish",
       "pricing.update",
       "orders.view",
-      "returns.view"
+      "returns.view",
+      "trendyol.finance.view",
+      "trendyol.finance.sync"
     ];
     const pricingPerms = [
       "reports.view",
@@ -229,7 +255,9 @@ async function main() {
       "returns.view",
       "pricing.update",
       "marketplace.publish",
-      "marketplace.unpublish"
+      "marketplace.unpublish",
+      "trendyol.finance.view",
+      "trendyol.finance.sync"
     ];
     const orderPerms = [
       "reports.view",
@@ -237,10 +265,28 @@ async function main() {
       "orders.view",
       "orders.manage",
       "returns.view",
-      "returns.manage"
+      "returns.manage",
+      "trendyol.questions.view",
+      "trendyol.questions.answer",
+      "trendyol.finance.view"
     ];
-    const supportPerms = ["reports.view", "products.view", "orders.view", "returns.view"];
-    const viewerPerms = ["reports.view", "products.view", "orders.view", "returns.view"];
+    const supportPerms = [
+      "reports.view",
+      "products.view",
+      "orders.view",
+      "returns.view",
+      "trendyol.questions.view",
+      "trendyol.questions.answer",
+      "trendyol.finance.view"
+    ];
+    const viewerPerms = [
+      "reports.view",
+      "products.view",
+      "orders.view",
+      "returns.view",
+      "trendyol.questions.view",
+      "trendyol.finance.view"
+    ];
     const managerPerms = [
       "products.view",
       "products.create",
@@ -252,7 +298,11 @@ async function main() {
       "marketplace.unpublish",
       "pricing.update",
       "orders.view",
-      "returns.view"
+      "returns.view",
+      "trendyol.questions.view",
+      "trendyol.questions.answer",
+      "trendyol.finance.view",
+      "trendyol.finance.sync"
     ];
     const staffPerms = [];
 

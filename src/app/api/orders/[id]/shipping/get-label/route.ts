@@ -25,7 +25,7 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as { queryId?: string };
 
   const order = await prisma.marketplaceOrder.findFirst({
-    where: { id: orderId, storeId: ctx.storeId }
+    where: { id: orderId, storeId: ctx.storeId, isTestRecord: false }
   });
   if (!order) {
     return NextResponse.json({ success: false, error: "Sipariş bulunamadı." }, { status: 404 });
@@ -33,10 +33,7 @@ export async function POST(
 
   const pkg = order.shipmentPackageId?.trim();
   if (!pkg) {
-    return NextResponse.json(
-      { success: false, error: "shipmentPackageId eksik." },
-      { status: 400 }
-    );
+    return NextResponse.json({ success: false, error: "shipmentPackageId eksik." }, { status: 400 });
   }
 
   const queryId =
@@ -116,3 +113,4 @@ export async function POST(
     hasRaw: rawData != null
   });
 }
+

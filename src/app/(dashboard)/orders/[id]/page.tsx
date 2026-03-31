@@ -51,7 +51,7 @@ export default async function OrderDetailPage({ params }: Props) {
   }
 
   const order = await prisma.marketplaceOrder.findFirst({
-    where: { id: orderId, storeId: ctx.storeId },
+    where: { id: orderId, storeId: ctx.storeId, isTestRecord: false },
     include: {
       lines: { orderBy: { createdAt: "asc" } },
       events: { orderBy: { createdAt: "asc" }, take: 200 },
@@ -108,6 +108,8 @@ export default async function OrderDetailPage({ params }: Props) {
     .join(" ");
 
   const canManageOrders = hasPermission(ctx.permissionKeys, "orders.manage");
+  const rawOrder = order.rawData as Record<string, unknown> | null;
+  const isMicroExport = rawOrder?.micro === true;
 
   const timelineEvents: TimelineEventInput[] = order.events.map((e) => ({
     id: e.id,
@@ -246,6 +248,7 @@ export default async function OrderDetailPage({ params }: Props) {
         orderId={order.id}
         shipmentPackageId={order.shipmentPackageId}
         canManageOrders={canManageOrders}
+        isMicroExport={isMicroExport}
         invoiceStatus={order.invoiceStatus}
         invoiceLink={order.invoiceLink}
         invoiceNumber={order.invoiceNumber}

@@ -198,6 +198,8 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
   const [unpublishing, setUnpublishing] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [updatingPriceStock, setUpdatingPriceStock] = useState(false);
+  const [updatingContent, setUpdatingContent] = useState(false);
+  const [deletingFromPlatform, setDeletingFromPlatform] = useState(false);
   const [publishFlash, setPublishFlash] = useState<{
     type: "ok" | "err";
     text: string;
@@ -629,6 +631,128 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
     return hasBarcode && (statusOk || wasPreviouslyPublished);
   }, [publishStatus, barcode, mappingPublishedAt]);
 
+  const canTrendyolContentPut = useMemo(() => {
+    const status = (publishStatus || "").toLowerCase();
+    const qty = Number(quantityInputValue);
+    return (
+      status === "published" &&
+      Boolean((barcode || "").trim()) &&
+      Number.isFinite(qty) &&
+      qty > 0 &&
+      Boolean(readiness?.ready)
+    );
+  }, [publishStatus, barcode, quantityInputValue, readiness?.ready]);
+
+  const canTrendyolPlatformDelete = useMemo(() => {
+    const status = (publishStatus || "").toLowerCase();
+    return (
+      Boolean((barcode || "").trim()) &&
+      status !== "sent" &&
+      status !== "processing"
+    );
+  }, [publishStatus, barcode]);
+
+  async function handleTrendyolContentUpdate() {
+    if (
+      !confirm(
+        "Yayındaki ürünün tam içeriği Trendyol'a PUT ile güncellenecek. Devam edilsin mi?"
+      )
+    ) {
+      return;
+    }
+    setUpdatingContent(true);
+    setPublishFlash(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/products/${productId}/trendyol-content-update`, {
+        method: "POST"
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const missing = Array.isArray(data.missing) ? data.missing : [];
+        setPublishFlash({
+          type: "err",
+          text:
+            typeof data.error === "string"
+              ? data.error
+              : "İçerik güncellemesi başarısız.",
+          missing: missing.length ? missing : undefined
+        });
+        await load(trendyolCategoryId);
+        router.refresh();
+        return;
+      }
+      setPublishFlash({
+        type: "ok",
+        text:
+          typeof data.message === "string"
+            ? data.message
+            : "İçerik güncelleme Trendyol'a iletildi."
+      });
+      if (typeof data.batchRequestId === "string" && data.batchRequestId) {
+        setBatchRequestId(data.batchRequestId);
+      }
+      if (typeof data.publishStatus === "string") {
+        setPublishStatus(data.publishStatus);
+      }
+      await load(trendyolCategoryId);
+      router.refresh();
+    } catch (e) {
+      setPublishFlash({
+        type: "err",
+        text: e instanceof Error ? e.message : "İstek başarısız."
+      });
+    } finally {
+      setUpdatingContent(false);
+    }
+  }
+
+  async function handleTrendyolPlatformDelete() {
+    if (
+      !confirm(
+        "Trendyol'dan ürün silme talebi gönderilecek (batch). Yerel eşleştirme silinmez; batch sonucunu kontrol edin. Emin misiniz?"
+      )
+    ) {
+      return;
+    }
+    setDeletingFromPlatform(true);
+    setPublishFlash(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/products/${productId}/trendyol-platform-delete`, {
+        method: "POST"
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Silme isteği başarısız."
+        );
+      }
+      setPublishFlash({
+        type: "ok",
+        text:
+          typeof data.message === "string"
+            ? data.message
+            : "Silme isteği kuyruğa alındı."
+      });
+      if (typeof data.batchRequestId === "string" && data.batchRequestId) {
+        setBatchRequestId(data.batchRequestId);
+      }
+      if (typeof data.publishStatus === "string") {
+        setPublishStatus(data.publishStatus);
+      }
+      await load(trendyolCategoryId);
+      router.refresh();
+    } catch (e) {
+      setPublishFlash({
+        type: "err",
+        text: e instanceof Error ? e.message : "Silme isteği başarısız."
+      });
+    } finally {
+      setDeletingFromPlatform(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="card">
@@ -714,6 +838,21 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
                 {updatingPriceStock ? "Güncelleniyor…" : "Fiyat/Stok Güncelle"}
               </button>
             </PermissionGate>
+            <PermissionGate permission="marketplace.publish">
+              <button
+                type="button"
+                onClick={handleTrendyolContentUpdate}
+                disabled={updatingContent || !canTrendyolContentPut}
+                className="inline-flex items-center justify-center rounded-lg border border-sky-700 px-3 py-2 text-xs font-medium text-sky-300 hover:bg-sky-900/30 disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  !canTrendyolContentPut
+                    ? "Sadece yayında (published), stok > 0 ve hazırlık tamam ise PUT gönderilir."
+                    : undefined
+                }
+              >
+                {updatingContent ? "Gönderiliyor…" : "İçerik güncelle (PUT)"}
+              </button>
+            </PermissionGate>
             <PermissionGate permission="marketplace.unpublish">
               <button
                 type="button"
@@ -739,6 +878,21 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
                   : publishStatus === "archived"
                     ? "Arşivden Çıkar"
                     : "Arşivle"}
+              </button>
+            </PermissionGate>
+            <PermissionGate permission="marketplace.publish">
+              <button
+                type="button"
+                onClick={handleTrendyolPlatformDelete}
+                disabled={deletingFromPlatform || !canTrendyolPlatformDelete}
+                className="inline-flex items-center justify-center rounded-lg border border-red-800/80 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-950/40 disabled:cursor-not-allowed disabled:opacity-50"
+                title={
+                  !canTrendyolPlatformDelete
+                    ? "Barkod gerekli; işlem sürüyorsa bekleyin."
+                    : "Trendyol ürün silme API (DELETE + batch)"
+                }
+              >
+                {deletingFromPlatform ? "Gönderiliyor…" : "Trendyol'dan sil"}
               </button>
             </PermissionGate>
           </div>

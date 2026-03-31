@@ -37,7 +37,7 @@ export async function POST(
   }
 
   const order = await prisma.marketplaceOrder.findFirst({
-    where: { id: orderId, storeId: ctx.storeId }
+    where: { id: orderId, storeId: ctx.storeId, isTestRecord: false }
   });
   if (!order) {
     return NextResponse.json({ success: false, error: "Sipariş bulunamadı." }, { status: 404 });

@@ -8,6 +8,7 @@ import {
   updateTrackingNumberOnTrendyol,
   validateTrackingPayload
 } from "@/lib/trendyolShipping";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   request: Request,
@@ -33,7 +34,7 @@ export async function POST(
   }
 
   const order = await prisma.marketplaceOrder.findFirst({
-    where: { id: orderId, storeId: ctx.storeId }
+    where: { id: orderId, storeId: ctx.storeId, isTestRecord: false }
   });
   if (!order) {
     return NextResponse.json({ success: false, error: "Sipariş bulunamadı." }, { status: 404 });
@@ -63,6 +64,14 @@ export async function POST(
   });
 
   if (!api.ok) {
+    logger.error("tracking_update_failed", {
+      route: "/api/orders/[id]/shipping/update-tracking",
+      storeId: ctx.storeId,
+      userId: ctx.userId,
+      membershipId: ctx.membershipId,
+      shipmentPackageId: pkg,
+      error: api.message
+    });
     await prisma.marketplaceOrder.update({
       where: { id: order.id },
       data: {

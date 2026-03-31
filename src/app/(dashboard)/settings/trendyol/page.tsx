@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TrendyolWebhooksPanel } from "@/components/trendyol/TrendyolWebhooksPanel";
 
 type ConnectionView = {
   id: string;
@@ -21,9 +22,57 @@ type ConnectionView = {
   lastTestAt: string | null;
   shipmentAddressId: string | null;
   returnAddressId: string | null;
+  cheSupplierId: string | null;
 };
 
 type AddressOption = { id: string; label: string };
+
+function ProductProvidersSnippet() {
+  const [loading, setLoading] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setText(null);
+    try {
+      const res = await fetch("/api/integrations/trendyol/product-providers");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setText(typeof data.error === "string" ? data.error : "Liste alınamadı.");
+        return;
+      }
+      setText(JSON.stringify(data.data ?? data, null, 2));
+    } catch {
+      setText("İstek başarısız.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3">
+      <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
+        Ürün sağlayıcıları (Trendyol)
+      </h2>
+      <p className="text-xs text-slate-400">
+        GET <code className="text-slate-300">/integration/product/sellers/&#123;id&#125;/providers</code>
+      </p>
+      <button
+        type="button"
+        onClick={load}
+        disabled={loading}
+        className="btn-secondary text-xs disabled:opacity-50"
+      >
+        {loading ? "Yükleniyor…" : "Sağlayıcı listesini çek"}
+      </button>
+      {text && (
+        <pre className="max-h-64 overflow-auto rounded-lg border border-slate-700 bg-slate-950/80 p-3 text-[11px] text-slate-300">
+          {text}
+        </pre>
+      )}
+    </Card>
+  );
+}
 
 type GlobalReferenceStatus = {
   isActive: boolean;
@@ -44,6 +93,7 @@ function TrendyolSettingsPageContent() {
   const [fetchingAddresses, setFetchingAddresses] = useState(false);
   const [shipmentAddressId, setShipmentAddressId] = useState("");
   const [returnAddressId, setReturnAddressId] = useState("");
+  const [cheSupplierId, setCheSupplierId] = useState("");
 
   const [sellerId, setSellerId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -81,6 +131,7 @@ function TrendyolSettingsPageContent() {
             connData.connection.shipmentAddressId?.trim() || ""
           );
           setReturnAddressId(connData.connection.returnAddressId?.trim() || "");
+          setCheSupplierId(connData.connection.cheSupplierId?.trim() || "");
         }
         setGlobalStatus(statusData?.status ?? null);
       } catch (e) {
@@ -107,7 +158,8 @@ function TrendyolSettingsPageContent() {
           environment,
           isActive,
           shipmentAddressId: shipmentAddressId.trim() || null,
-          returnAddressId: returnAddressId.trim() || null
+          returnAddressId: returnAddressId.trim() || null,
+          cheSupplierId: cheSupplierId.trim() || null
         })
       });
       const data = await res.json();
@@ -120,6 +172,7 @@ function TrendyolSettingsPageContent() {
           data.connection.shipmentAddressId?.trim() || ""
         );
         setReturnAddressId(data.connection.returnAddressId?.trim() || "");
+        setCheSupplierId(data.connection.cheSupplierId?.trim() || "");
       }
       setApiKey("");
       setApiSecret("");
@@ -297,6 +350,20 @@ function TrendyolSettingsPageContent() {
           />
         </div>
 
+        <div>
+          <label className="label">CHE supplierId (Cari ekstre)</label>
+          <Input
+            type="text"
+            value={cheSupplierId}
+            onChange={(e) => setCheSupplierId(e.target.value)}
+            placeholder="Boş bırakılırsa Seller ID kullanılır"
+            autoComplete="off"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Trendyol finance/che uçları query parametresi. Seller ID’den farklıysa buraya girin.
+          </p>
+        </div>
+
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="label">API Key</label>
@@ -456,6 +523,10 @@ function TrendyolSettingsPageContent() {
           saklayın; aksi halde yayın sırasında hata alırsınız.
         </p>
       </Card>
+
+      <ProductProvidersSnippet />
+
+      <TrendyolWebhooksPanel />
 
       <Card className="space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">

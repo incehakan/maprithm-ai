@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { prisma } from "./prisma";
 import { decryptSecret } from "./secretCrypto";
+import { fetchWithTimeoutAndRetry } from "@/lib/httpClient";
+import { logger } from "@/lib/logger";
 
 export type TrendyolEnvironment = "stage" | "production";
 
@@ -98,6 +100,8 @@ async function getCredentialsForUser(params: {
  */
 export type TrendyolFetchOptions = {
   extraHeaders?: Record<string, string>;
+  requestId?: string;
+  timeoutMs?: number;
 };
 
 export async function trendyolFetch<T = unknown>(
@@ -121,7 +125,9 @@ export async function trendyolFetch<T = unknown>(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetchWithTimeoutAndRetry(
+      url,
+      {
       method: "GET",
       headers: {
         Authorization: `Basic ${token}`,
@@ -133,10 +139,22 @@ export async function trendyolFetch<T = unknown>(
         ...(options?.extraHeaders ?? {})
       },
       cache: "no-store"
-    });
+      },
+      {
+        requestName: "trendyolFetch:get",
+        requestId: options?.requestId,
+        timeoutMs: options?.timeoutMs
+      }
+    );
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Ağ hatası (timeout veya DNS).";
+    logger.error("trendyol_api_failed", {
+      helper: "trendyolFetch",
+      requestId: options?.requestId ?? null,
+      path,
+      storeId
+    });
     return { ok: false, status: 0, message: msg };
   }
 
@@ -197,7 +215,9 @@ export async function trendyolPostJson<TResponse = unknown>(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetchWithTimeoutAndRetry(
+      url,
+      {
       method: "POST",
       headers: {
         Authorization: `Basic ${token}`,
@@ -211,10 +231,118 @@ export async function trendyolPostJson<TResponse = unknown>(
       },
       body: JSON.stringify(body),
       cache: "no-store"
-    });
+      },
+      {
+        requestName: "trendyolFetch:post",
+        requestId: options?.requestId,
+        timeoutMs: options?.timeoutMs
+      }
+    );
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Ağ hatası (timeout veya DNS).";
+    logger.error("trendyol_api_failed", {
+      helper: "trendyolPostJson",
+      requestId: options?.requestId ?? null,
+      path,
+      storeId
+    });
+    return { ok: false, status: 0, message: msg };
+  }
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const j = JSON.parse(text) as Record<string, unknown>;
+      detail =
+        (typeof j.message === "string" && j.message) ||
+        (typeof j.exception === "string" && j.exception) ||
+        (typeof j.errorMessage === "string" && j.errorMessage) ||
+        "";
+    } catch {
+      detail = text.slice(0, 500);
+    }
+    const message =
+      [`HTTP ${res.status}`, res.statusText, detail].filter(Boolean).join(" — ") ||
+      "Bilinmeyen hata";
+    return { ok: false, status: res.status, message };
+  }
+
+  try {
+    const data = text ? (JSON.parse(text) as TResponse) : ({} as TResponse);
+    return { ok: true, data, status: res.status };
+  } catch {
+    // Bazı uçlar (ör. QnA cevap) düz metin veya tırnaklı JSON string dönebiliyor.
+    if (text.trim()) {
+      return { ok: true, data: text as TResponse, status: res.status };
+    }
+    return {
+      ok: false,
+      status: res.status,
+      message: "Geçersiz JSON yanıtı."
+    };
+  }
+}
+
+/**
+ * Trendyol Partner API'ye kimlik doğrulamalı PUT (JSON body) gönderir.
+ */
+export async function trendyolPutJson<TResponse = unknown>(
+  userId: string,
+  storeId: string,
+  path: string,
+  body: unknown,
+  options?: TrendyolFetchOptions
+): Promise<TrendyolFetchResult<TResponse>> {
+  const { credentials, clientIp, agentName } =
+    await getCredentialsForUser({ userId, storeId });
+
+  const base = getBaseUrl(credentials.environment);
+  const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const token = Buffer.from(
+    `${credentials.apiKey}:${credentials.apiSecret}`,
+    "utf8"
+  ).toString("base64");
+
+  const correlationId = randomUUID();
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeoutAndRetry(
+      url,
+      {
+      method: "PUT",
+      headers: {
+        Authorization: `Basic ${token}`,
+        "User-Agent": credentials.userAgent,
+        "x-clientip": clientIp,
+        "x-correlationid": correlationId,
+        "x-agentname": agentName,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(options?.extraHeaders ?? {})
+      },
+      body: JSON.stringify(body),
+      cache: "no-store"
+      },
+      {
+        requestName: "trendyolFetch:put",
+        requestId: options?.requestId,
+        timeoutMs: options?.timeoutMs
+      }
+    );
+  } catch (err) {
+    const msg =
+      err instanceof Error ? err.message : "Ağ hatası (timeout veya DNS).";
+    logger.error("trendyol_api_failed", {
+      helper: "trendyolPutJson",
+      requestId: options?.requestId ?? null,
+      path,
+      storeId
+    });
     return { ok: false, status: 0, message: msg };
   }
 
@@ -251,15 +379,16 @@ export async function trendyolPostJson<TResponse = unknown>(
 }
 
 /**
- * Trendyol Partner API'ye kimlik doğrulamalı PUT (JSON body) gönderir.
+ * multipart/form-data (ör. fatura dosyası). Content-Type set etmeyin; sınır otomatik.
+ * İdempotent olmadığı için yeniden deneme kapalıdır.
  */
-export async function trendyolPutJson<TResponse = unknown>(
+export async function trendyolPostFormData(
   userId: string,
   storeId: string,
   path: string,
-  body: unknown,
+  formData: FormData,
   options?: TrendyolFetchOptions
-): Promise<TrendyolFetchResult<TResponse>> {
+): Promise<TrendyolFetchResult<unknown>> {
   const { credentials, clientIp, agentName } =
     await getCredentialsForUser({ userId, storeId });
 
@@ -275,24 +404,38 @@ export async function trendyolPutJson<TResponse = unknown>(
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: "PUT",
-      headers: {
-        Authorization: `Basic ${token}`,
-        "User-Agent": credentials.userAgent,
-        "x-clientip": clientIp,
-        "x-correlationid": correlationId,
-        "x-agentname": agentName,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        ...(options?.extraHeaders ?? {})
+    res = await fetchWithTimeoutAndRetry(
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${token}`,
+          "User-Agent": credentials.userAgent,
+          "x-clientip": clientIp,
+          "x-correlationid": correlationId,
+          "x-agentname": agentName,
+          Accept: "application/json",
+          ...(options?.extraHeaders ?? {})
+        },
+        body: formData,
+        cache: "no-store"
       },
-      body: JSON.stringify(body),
-      cache: "no-store"
-    });
+      {
+        requestName: "trendyolFetch:multipart",
+        requestId: options?.requestId,
+        timeoutMs: options?.timeoutMs ?? 120_000,
+        maxRetries: 0
+      }
+    );
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Ağ hatası (timeout veya DNS).";
+    logger.error("trendyol_api_failed", {
+      helper: "trendyolPostFormData",
+      requestId: options?.requestId ?? null,
+      path,
+      storeId
+    });
     return { ok: false, status: 0, message: msg };
   }
 
@@ -316,14 +459,105 @@ export async function trendyolPutJson<TResponse = unknown>(
     return { ok: false, status: res.status, message };
   }
 
+  if (!text.trim()) {
+    return { ok: true, data: {}, status: res.status };
+  }
   try {
-    const data = text ? (JSON.parse(text) as TResponse) : ({} as TResponse);
+    return { ok: true, data: JSON.parse(text) as unknown, status: res.status };
+  } catch {
+    return { ok: true, data: text as unknown, status: res.status };
+  }
+}
+
+export type TrendyolDeleteOptions = TrendyolFetchOptions & {
+  /** Bazı Trendyol uçları (ör. ürün silme) JSON gövde ister. */
+  body?: unknown;
+};
+
+export async function trendyolDelete<TResponse = unknown>(
+  userId: string,
+  storeId: string,
+  path: string,
+  options?: TrendyolDeleteOptions
+): Promise<TrendyolFetchResult<TResponse>> {
+  const { credentials, clientIp, agentName } =
+    await getCredentialsForUser({ userId, storeId });
+
+  const base = getBaseUrl(credentials.environment);
+  const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const token = Buffer.from(
+    `${credentials.apiKey}:${credentials.apiSecret}`,
+    "utf8"
+  ).toString("base64");
+
+  const correlationId = randomUUID();
+  const hasBody = options?.body !== undefined;
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeoutAndRetry(
+      url,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Basic ${token}`,
+          "User-Agent": credentials.userAgent,
+          "x-clientip": clientIp,
+          "x-correlationid": correlationId,
+          "x-agentname": agentName,
+          Accept: "application/json",
+          ...(hasBody ? { "Content-Type": "application/json" } : {}),
+          ...(options?.extraHeaders ?? {})
+        },
+        ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
+        cache: "no-store"
+      },
+      {
+        requestName: "trendyolFetch:delete",
+        requestId: options?.requestId,
+        timeoutMs: options?.timeoutMs
+      }
+    );
+  } catch (err) {
+    const msg =
+      err instanceof Error ? err.message : "Ağ hatası (timeout veya DNS).";
+    logger.error("trendyol_api_failed", {
+      helper: "trendyolDelete",
+      requestId: options?.requestId ?? null,
+      path,
+      storeId
+    });
+    return { ok: false, status: 0, message: msg };
+  }
+
+  const text = await res.text();
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const j = JSON.parse(text) as Record<string, unknown>;
+      detail =
+        (typeof j.message === "string" && j.message) ||
+        (typeof j.exception === "string" && j.exception) ||
+        (typeof j.errorMessage === "string" && j.errorMessage) ||
+        "";
+    } catch {
+      detail = text.slice(0, 500);
+    }
+    const message =
+      [`HTTP ${res.status}`, res.statusText, detail].filter(Boolean).join(" — ") ||
+      "Bilinmeyen hata";
+    return { ok: false, status: res.status, message };
+  }
+
+  if (!text.trim()) {
+    return { ok: true, data: {} as TResponse, status: res.status };
+  }
+  try {
+    const data = JSON.parse(text) as TResponse;
     return { ok: true, data, status: res.status };
   } catch {
-    return {
-      ok: false,
-      status: res.status,
-      message: "Geçersiz JSON yanıtı."
-    };
+    return { ok: true, data: text as TResponse, status: res.status };
   }
 }

@@ -6,7 +6,7 @@ import { requireActiveStore } from "@/lib/requireActiveStore";
 
 /**
  * GET /api/integrations/trendyol/addresses
- * Trendyol: GET /integration/sellers/{sellerId}/addresses
+ * Trendyol: önce /integration/product/sellers/{sellerId}/addresses, 404 ise legacy path
  */
 export async function GET() {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -36,8 +36,15 @@ export async function GET() {
     );
   }
 
-  const path = `/integration/sellers/${encodeURIComponent(sellerId)}/addresses`;
-  const result = await trendyolFetch<unknown>(ctx.userId, ctx.storeId, path);
+  const primaryPath = `/integration/product/sellers/${encodeURIComponent(
+    sellerId
+  )}/addresses`;
+  const fallbackPath = `/integration/sellers/${encodeURIComponent(sellerId)}/addresses`;
+
+  let result = await trendyolFetch<unknown>(ctx.userId, ctx.storeId, primaryPath);
+  if (!result.ok && result.status === 404) {
+    result = await trendyolFetch<unknown>(ctx.userId, ctx.storeId, fallbackPath);
+  }
 
   if (!result.ok) {
     return NextResponse.json(

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createActivityLog } from "@/lib/activityLog";
+import { logger } from "@/lib/logger";
+import { getRequestId } from "@/lib/requestContext";
 import {
   TRENDYOL_ORDER_INGEST_SOURCE,
   upsertTrendyolShipmentPackageForStore
@@ -17,9 +19,9 @@ export const dynamic = "force-dynamic";
 function verifyWebhookSecret(request: Request): NextResponse | null {
   const secret = process.env.TRENDYOL_ORDER_WEBHOOK_SECRET?.trim();
   if (!secret) {
-    console.warn(
-      "[Trendyol order webhook] TRENDYOL_ORDER_WEBHOOK_SECRET tanımlı değil; imza doğrulanmıyor"
-    );
+    logger.warn("webhook_secret_missing", {
+      route: "/api/webhooks/trendyol/orders"
+    });
     return null;
   }
 
@@ -34,9 +36,9 @@ function verifyWebhookSecret(request: Request): NextResponse | null {
 
   const provided = headerSecret ?? bearer;
   if (!provided || provided !== secret) {
-    console.warn(
-      "[Trendyol order webhook] Geçersiz veya eksik secret (x-trendyol-webhook-secret / x-webhook-secret / Authorization: Bearer)"
-    );
+    logger.warn("webhook_unauthorized", {
+      route: "/api/webhooks/trendyol/orders"
+    });
     return NextResponse.json({ error: "Yetkisiz" }, { status: 401 });
   }
 
@@ -44,6 +46,7 @@ function verifyWebhookSecret(request: Request): NextResponse | null {
 }
 
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   const authErr = verifyWebhookSecret(request);
   if (authErr) return authErr;
 
@@ -83,9 +86,12 @@ export async function POST(request: Request) {
   });
 
   if (!conn) {
-    console.warn(
-      `[Trendyol order webhook] Bağlantı yok: sellerId=${sellerKey}, paket=${packages.length}`
-    );
+    logger.warn("webhook_connection_missing", {
+      route: "/api/webhooks/trendyol/orders",
+      requestId,
+      sellerId: sellerKey,
+      packageCount: packages.length
+    });
     return NextResponse.json(
       {
         error: `Aktif Trendyol mağaza bağlantısı yok (sellerId: ${sellerKey})`
@@ -201,7 +207,13 @@ export async function POST(request: Request) {
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : "Webhook paket işleme hatası";
-    console.error("[Trendyol order webhook]", err);
+    logger.error("webhook_failed", {
+      route: "/api/webhooks/trendyol/orders",
+      requestId,
+      storeId,
+      userId,
+      error: msg
+    });
 
     await createActivityLog({
       userId,
@@ -226,6 +238,6 @@ export async function POST(request: Request) {
       // ignore
     }
 
-    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+    return NextResponse.json({ success: false, error: msg, requestId }, { status: 500 });
   }
 }

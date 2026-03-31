@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/secretCrypto";
+import { fetchWithTimeoutAndRetry } from "@/lib/httpClient";
+import { logger } from "@/lib/logger";
 
 type TrendyolEnvironment = "stage" | "production";
 
@@ -74,6 +76,8 @@ export async function getSystemTrendyolCredentials(): Promise<{
 
 export type TrendyolSystemFetchOptions = {
   extraHeaders?: Record<string, string>;
+  requestId?: string;
+  timeoutMs?: number;
 };
 
 export async function trendyolSystemFetch<T = unknown>(
@@ -92,7 +96,9 @@ export async function trendyolSystemFetch<T = unknown>(
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetchWithTimeoutAndRetry(
+      url,
+      {
       method: "GET",
       headers: {
         Authorization: `Basic ${token}`,
@@ -104,9 +110,20 @@ export async function trendyolSystemFetch<T = unknown>(
         ...(options?.extraHeaders ?? {})
       },
       cache: "no-store"
-    });
+      },
+      {
+        requestName: "trendyolSystemFetch:get",
+        requestId: options?.requestId,
+        timeoutMs: options?.timeoutMs
+      }
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Ağ hatası";
+    logger.error("trendyol_api_failed", {
+      helper: "trendyolSystemFetch",
+      requestId: options?.requestId ?? null,
+      path
+    });
     return { ok: false, status: 0, message: msg };
   }
 

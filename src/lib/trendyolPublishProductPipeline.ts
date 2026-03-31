@@ -9,6 +9,10 @@ import {
 import { evaluateTrendyolPublishReadiness } from "@/lib/trendyolMappingReadiness";
 import { canPublishProduct } from "@/lib/productLifecycle";
 import { publishProductToTrendyol } from "@/lib/trendyolPublishProduct";
+import {
+  deleteTrendyolProductsOnTrendyol,
+  updateProductOnTrendyol
+} from "@/lib/trendyolProductMutations";
 import type { ProductMarketplaceMapping } from "@prisma/client";
 
 export type TrendyolPublishPipelineResult =
@@ -409,6 +413,195 @@ export async function runTrendyolProductPublishPipeline(input: {
       entityType: "product",
       entityId: input.productId,
       message: "Ürün Trendyol'da yayınlanmak üzere gönderildi."
+    });
+  }
+
+  return {
+    ok: true,
+    batchRequestId: batchRequestId ?? null,
+    publishStatus: batchRequestId ? "sent" : "processing"
+  };
+}
+
+/**
+ * Yayında ürün için Trendyol PUT .../products (tam gövde güncelleme).
+ */
+export async function runTrendyolProductContentUpdatePipeline(input: {
+  userId: string;
+  storeId: string;
+  membershipId: string | null;
+  productId: string;
+  skipActivityLog?: boolean;
+}): Promise<TrendyolPublishPipelineResult> {
+  return runTrendyolProductPublishPipeline({
+    ...input,
+    contentRepublishMode: true,
+    publishProduct: (args) =>
+      updateProductOnTrendyol({
+        userId: args.userId,
+        storeId: args.storeId,
+        sellerId: args.sellerId,
+        body: args.body
+      }),
+    skipActivityLog: input.skipActivityLog
+  });
+}
+
+export type TrendyolDeletePipelineResult =
+  | { ok: true; batchRequestId: string | null; publishStatus: string }
+  | { ok: false; error: string; httpStatus: number };
+
+/**
+ * Trendyol platformundan ürün silme talebi (DELETE + batchRequestId).
+ */
+export async function runTrendyolProductDeleteFromPlatform(input: {
+  userId: string;
+  storeId: string;
+  membershipId: string | null;
+  productId: string;
+  skipActivityLog?: boolean;
+}): Promise<TrendyolDeletePipelineResult> {
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, userId: input.userId, storeId: input.storeId }
+  });
+  if (!product) {
+    return { ok: false, httpStatus: 404, error: "Ürün bulunamadı." };
+  }
+
+  const mappingRow = await prisma.productMarketplaceMapping.findUnique({
+    where: {
+      productId_platform: { productId: input.productId, platform: "trendyol" }
+    }
+  });
+  if (!mappingRow) {
+    return { ok: false, httpStatus: 400, error: "Trendyol eşleştirmesi bulunamadı." };
+  }
+  if (mappingRow.storeId !== input.storeId) {
+    return { ok: false, httpStatus: 403, error: "Yetkisiz." };
+  }
+
+  const prevPublishStatus = mappingRow.publishStatus ?? "draft";
+  const mapStatus = String(prevPublishStatus).toLowerCase();
+  if (mapStatus === "sent" || mapStatus === "processing") {
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: "Trendyol işlemi sürüyor; önce batch sonucunu kontrol edin."
+    };
+  }
+
+  const barcode = String(mappingRow.barcode ?? "").trim();
+  if (!barcode) {
+    return { ok: false, httpStatus: 400, error: "Barkod tanımlı değil." };
+  }
+
+  const conn = await prisma.marketplaceConnection.findUnique({
+    where: { storeId_platform: { storeId: input.storeId, platform: "trendyol" } }
+  });
+  if (!conn?.isActive) {
+    return { ok: false, httpStatus: 400, error: "Aktif Trendyol bağlantısı yok." };
+  }
+  const sellerId = String(conn.sellerId).trim();
+  if (!sellerId) {
+    return { ok: false, httpStatus: 400, error: "Satıcı ID (Seller ID) tanımlı değil." };
+  }
+
+  await prisma.productMarketplaceMapping.update({
+    where: { id: mappingRow.id },
+    data: {
+      publishStatus: "processing",
+      lastErrorMessage: null,
+      lastSyncAt: new Date()
+    }
+  });
+
+  const apiResult = await deleteTrendyolProductsOnTrendyol({
+    userId: input.userId,
+    storeId: input.storeId,
+    sellerId,
+    barcodes: [barcode]
+  });
+
+  if (!apiResult.ok) {
+    await prisma.productMarketplaceMapping.update({
+      where: { id: mappingRow.id },
+      data: {
+        publishStatus: prevPublishStatus,
+        lastErrorMessage: apiResult.message.slice(0, 2000),
+        lastSyncAt: new Date()
+      }
+    });
+    if (!input.skipActivityLog) {
+      await createActivityLog({
+        userId: input.userId,
+        storeId: input.storeId,
+        membershipId: input.membershipId ?? undefined,
+        action: "TRENDYOL_PRODUCT_DELETE_FAILED",
+        entityType: "product",
+        entityId: input.productId,
+        message: "Trendyol ürün silme isteği başarısız"
+      });
+    }
+    return {
+      ok: false,
+      httpStatus: apiResult.status >= 400 ? apiResult.status : 502,
+      error: apiResult.message
+    };
+  }
+
+  const batchRequestId = extractBatchRequestId(apiResult.data);
+
+  await prisma.productMarketplaceMapping.update({
+    where: { id: mappingRow.id },
+    data: {
+      publishStatus: batchRequestId ? "sent" : "processing",
+      batchRequestId: batchRequestId ?? mappingRow.batchRequestId,
+      lastErrorMessage: batchRequestId
+        ? null
+        : "Yanıtta batchRequestId yok; Trendyol panelinden doğrulayın.",
+      lastSyncAt: new Date()
+    }
+  });
+
+  if (batchRequestId) {
+    try {
+      await prisma.trendyolPublishJob.upsert({
+        where: {
+          storeId_batchRequestId: { storeId: input.storeId, batchRequestId }
+        },
+        create: {
+          userId: input.userId,
+          storeId: input.storeId,
+          batchRequestId,
+          platform: "trendyol",
+          batchStatus: "IN_PROGRESS",
+          itemCount: 1,
+          successCount: 0,
+          failedCount: 0,
+          pendingCount: 1,
+          batchRequestType: "ProductDelete",
+          lastSyncMessage: "Ürün silme Trendyol kuyruğunda."
+        },
+        update: {
+          batchStatus: "IN_PROGRESS",
+          batchRequestType: "ProductDelete",
+          lastSyncMessage: "Ürün silme Trendyol kuyruğunda."
+        }
+      });
+    } catch (e) {
+      console.warn("trendyolPublishJob upsert (delete) skipped:", e);
+    }
+  }
+
+  if (!input.skipActivityLog) {
+    await createActivityLog({
+      userId: input.userId,
+      storeId: input.storeId,
+      membershipId: input.membershipId ?? undefined,
+      action: "TRENDYOL_PRODUCT_DELETE_QUEUED",
+      entityType: "product",
+      entityId: input.productId,
+      message: "Trendyol ürün silme kuyruğa alındı."
     });
   }
 

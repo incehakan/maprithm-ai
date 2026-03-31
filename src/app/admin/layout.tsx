@@ -32,6 +32,12 @@ export default async function SystemAdminLayout({
             <Link href="/admin/reference-sync" className="btn-secondary">
               Reference Sync
             </Link>
+            <Link href="/admin/system-status" className="btn-secondary">
+              System Status
+            </Link>
+            <Link href="/admin/test-lab" className="btn-secondary">
+              Operation Test Lab
+            </Link>
             <Link href="/dashboard" className="btn-secondary">
               Dashboard
             </Link>

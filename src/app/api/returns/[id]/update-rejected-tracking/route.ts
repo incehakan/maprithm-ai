@@ -3,6 +3,7 @@ import { createActivityLog } from "@/lib/activityLog";
 import { prisma } from "@/lib/prisma";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import { extractRejectedPackageIdForTracking, updateRejectedPackageTracking } from "@/lib/trendyolReturns";
+import { logger } from "@/lib/logger";
 
 type Ctx = Awaited<ReturnType<typeof requireActiveStore>>;
 
@@ -38,7 +39,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const storeId = ctx.storeId;
   const claim = await prisma.marketplaceReturnClaim.findFirst({
-    where: { id, storeId }
+    where: { id, storeId, isTestRecord: false }
   });
   if (!claim) {
     return NextResponse.json({ success: false, error: "Kayıt bulunamadı." }, { status: 404 });
@@ -68,6 +69,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   });
 
   if (!res.ok) {
+    logger.error("return_operation_failed", {
+      route: "/api/returns/[id]/update-rejected-tracking",
+      storeId,
+      userId: ctx.userId,
+      membershipId: ctx.membershipId,
+      claimId: claim.claimId,
+      operation: "update_rejected_tracking",
+      error: res.message
+    });
     await prisma.marketplaceReturnClaimEvent.create({
       data: {
         storeId,
@@ -77,6 +87,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         previousStatus: prev,
         rawData: { operation: "update_rejected_tracking", packageId: pkgId }
       }
+    });
+    await createActivityLog({
+      userId: ctx.userId,
+      storeId,
+      membershipId: ctx.membershipId,
+      action: "TRENDYOL_RETURN_OPERATION_FAILED",
+      entityType: "marketplace_return",
+      entityId: claim.id,
+      message: `Red paketi takip güncelleme başarısız: ${claim.claimId} — ${res.message}`
     });
     return NextResponse.json({ success: false, error: res.message }, { status: 502 });
   }

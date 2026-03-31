@@ -17,6 +17,8 @@ type Props = {
   orderId: string;
   shipmentPackageId: string;
   canManageOrders: boolean;
+  /** Trendyol rawData.micro — micro ihracatta ek alanlar gerekir */
+  isMicroExport?: boolean;
   invoiceStatus: string | null;
   invoiceLink: string | null;
   invoiceNumber: string | null;
@@ -47,6 +49,7 @@ export function OrderInvoiceCardClient({
   orderId,
   shipmentPackageId,
   canManageOrders,
+  isMicroExport = false,
   invoiceStatus,
   invoiceLink,
   invoiceNumber,
@@ -65,6 +68,8 @@ export function OrderInvoiceCardClient({
   );
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileMicroOverride, setFileMicroOverride] = useState(false);
   const [confirmResend, setConfirmResend] = useState(false);
 
   /** Önceki başarılı gönderim zamanı korunur; API hatasından sonra status failed olsa bile yeniden gönderim onayı gerekir */
@@ -111,6 +116,48 @@ export function OrderInvoiceCardClient({
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  const effectiveMicro = isMicroExport || fileMicroOverride;
+
+  async function submitFileUpload(file: File) {
+    setToast(null);
+    setFileLoading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("shipmentPackageId", shipmentPackageId);
+      if (effectiveMicro) {
+        form.set("isMicroExport", "true");
+        form.set("invoiceNumber", number.trim());
+        form.set("invoiceDateTime", dt ? new Date(dt).toISOString() : new Date().toISOString());
+      }
+      const res = await fetch(
+        `/api/orders/${encodeURIComponent(orderId)}/actions/upload-invoice-file`,
+        { method: "POST", body: form }
+      );
+      const data = await safeParseJsonResponse(res);
+      if (!res.ok) {
+        const msg =
+          typeof (data as { error?: string })?.error === "string"
+            ? (data as { error: string }).error
+            : "Dosya yüklenemedi.";
+        setToast({ type: "error", message: msg });
+        return;
+      }
+      setToast({
+        type: "success",
+        message: "Fatura dosyası Trendyol'a yüklendi (PDF/JPEG/PNG, max 10 MB)."
+      });
+      router.refresh();
+    } catch (e) {
+      setToast({
+        type: "error",
+        message: e instanceof Error ? e.message : "Beklenmeyen hata."
+      });
+    } finally {
+      setFileLoading(false);
     }
   }
 
@@ -254,6 +301,39 @@ export function OrderInvoiceCardClient({
             >
               {loading ? "Gönderiliyor…" : "Fatura linki gönder"}
             </button>
+          </div>
+
+          <div className="space-y-3 border-t border-slate-700 pt-4">
+            <div className="text-xs font-semibold text-slate-300">
+              Fatura dosyası yükle (Trendyol seller-invoice-file)
+            </div>
+            <p className="text-xs text-slate-500">
+              PDF, JPEG veya PNG; en fazla 10 MB. Micro ihracatta fatura no (16 karakter) ve tarih
+              zorunludur — aşağıdaki kutuyu işaretleyin veya siparişte micro bayrağı açıksa otomatik
+              uygulanır.
+            </p>
+            {!isMicroExport && (
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={fileMicroOverride}
+                  onChange={(e) => setFileMicroOverride(e.target.checked)}
+                />
+                Micro ihracat paketi (fatura no + tarih bu formdaki alanlardan gider)
+              </label>
+            )}
+            <input
+              type="file"
+              accept=".pdf,image/jpeg,image/png,.jpg,.jpeg,.png"
+              disabled={fileLoading}
+              className="block w-full text-xs text-slate-300 file:mr-2 file:rounded file:border file:border-slate-600 file:bg-slate-800 file:px-2 file:py-1"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void submitFileUpload(f);
+              }}
+            />
+            {fileLoading ? <p className="text-xs text-slate-500">Yükleniyor…</p> : null}
           </div>
 
           <Modal open={confirmResend} onClose={() => setConfirmResend(false)} title="Yeniden gönder">

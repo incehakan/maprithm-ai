@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-03-30T20:45:11.123Z",
+  "level": "error",
+  "message": "trendyol_api_failed",
+  "route": "/api/orders/[id]/shipping/update-tracking",
+  "helper": "trendyolPutJson",
+  "job": "order_sync",
+  "storeId": "store-uuid",
+  "userId": "user-uuid",
+  "membershipId": "membership-uuid",
+  "requestId": "3c4e0c8d-6f74-4e9f-8def-9c4b7160e9a4"
+}
+

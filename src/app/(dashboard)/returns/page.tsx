@@ -77,7 +77,10 @@ export default async function ReturnsPage({ searchParams }: { searchParams: Sear
 
   const canManage = hasPermission(ctx.permissionKeys, "returns.manage");
 
-  const where: Prisma.MarketplaceReturnClaimWhereInput = { storeId: ctx.storeId };
+  const where: Prisma.MarketplaceReturnClaimWhereInput = {
+    storeId: ctx.storeId,
+    isTestRecord: false
+  };
   if (searchParams.claimStatus?.trim()) {
     where.claimStatus = { contains: searchParams.claimStatus.trim(), mode: "insensitive" };
   }

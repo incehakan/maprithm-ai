@@ -57,7 +57,7 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
 
   const { id } = await params;
   const claim = await prisma.marketplaceReturnClaim.findFirst({
-    where: { id, storeId: ctx.storeId },
+    where: { id, storeId: ctx.storeId, isTestRecord: false },
     include: {
       lines: { orderBy: { createdAt: "asc" } },
       events: { orderBy: { createdAt: "desc" } }

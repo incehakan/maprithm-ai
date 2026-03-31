@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { syncGlobalTrendyolCarrierCompanies } from "@/lib/trendyolCarrier";
 import { normalizeBrandData, normalizeCategoryData } from "@/lib/trendyolNormalize";
 import { trendyolSystemFetch } from "@/lib/trendyolSystemFetch";
+import { logger } from "@/lib/logger";
 import {
   syncTrendyolCategoryAttributesForAllLeafCategoriesSystem
 } from "@/lib/trendyolSyncCategoryAttributes";
@@ -232,6 +233,10 @@ export async function runGlobalTrendyolReferenceSync(params?: {
     };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Bilinmeyen hata";
+    logger.error("reference_sync_failed", {
+      helper: "runGlobalTrendyolReferenceSync",
+      error: msg
+    });
     await prisma.systemMarketplaceConnection.update({
       where: { platform: "trendyol" },
       data: {

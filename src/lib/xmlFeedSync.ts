@@ -18,6 +18,7 @@ import { hashesFromProductSnapshot, hashesFromXmlRow } from "@/lib/xmlProductHas
 import { withTrendyolXmlSyncConcurrency } from "@/lib/trendyolXmlSyncConcurrency";
 import { publishProductToTrendyol } from "@/lib/trendyolPublishProduct";
 import { runTrendyolProductPublishPipeline } from "@/lib/trendyolPublishProductPipeline";
+import { logger } from "@/lib/logger";
 
 export type SyncSummary = {
   matchedCount: number;
@@ -486,6 +487,13 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
       return summary;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Senkron başarısız.";
+      logger.error("xml_sync_failed", {
+        helper: "runXmlFeedSync",
+        storeId: params.storeId,
+        userId: params.userId,
+        entityId: source.id,
+        message
+      });
       await prisma.xmlFeedSource.update({
         where: { id: source.id },
         data: {

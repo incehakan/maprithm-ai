@@ -1,5 +1,6 @@
 import { parseImportBuffer } from "@/lib/importFileParser";
 import { normalizeImportRow } from "@/lib/importNormalize";
+import { fetchWithTimeoutAndRetry } from "@/lib/httpClient";
 
 export type ParsedXmlFeedRow = {
   rowIndex: number;
@@ -18,7 +19,11 @@ export type ParsedXmlFeedRow = {
 export async function fetchAndParseXmlFeed(
   feedUrl: string
 ): Promise<ParsedXmlFeedRow[]> {
-  const res = await fetch(feedUrl, { cache: "no-store" });
+  const res = await fetchWithTimeoutAndRetry(
+    feedUrl,
+    { cache: "no-store" },
+    { timeoutMs: 20_000, maxRetries: 2, requestName: "xmlFeedParser:fetch" }
+  );
   if (!res.ok) {
     throw new Error(`XML feed alınamadı: HTTP ${res.status}`);
   }
