@@ -42,6 +42,14 @@ function flattenCategories(
   return result;
 }
 
+function chunkArray<T>(items: T[], chunkSize: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    out.push(items.slice(i, i + chunkSize));
+  }
+  return out;
+}
+
 export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
   let totalProcessed = 0;
   let page = 0;
@@ -87,10 +95,20 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
   }
 
   if (seen.size > 0) {
-    await prisma.trendyolBrand.updateMany({
-      where: { brandId: { notIn: [...seen] }, removedAt: null },
-      data: { removedAt: now, isActive: false }
+    // NOTE: "notIn: [...seen]" can exceed PostgreSQL bind limit on large datasets.
+    const activeBrandRows = await prisma.trendyolBrand.findMany({
+      where: { removedAt: null },
+      select: { brandId: true }
     });
+    const staleBrandIds = activeBrandRows
+      .map((x) => x.brandId)
+      .filter((id) => !seen.has(id));
+    for (const ids of chunkArray(staleBrandIds, 1000)) {
+      await prisma.trendyolBrand.updateMany({
+        where: { brandId: { in: ids }, removedAt: null },
+        data: { removedAt: now, isActive: false }
+      });
+    }
   }
 
   return { count: totalProcessed };
@@ -138,10 +156,20 @@ export async function syncGlobalTrendyolCategories(): Promise<{ count: number }>
   }
 
   if (seen.size > 0) {
-    await prisma.trendyolCategory.updateMany({
-      where: { categoryId: { notIn: [...seen] }, removedAt: null },
-      data: { removedAt: now, isActive: false }
+    // NOTE: "notIn: [...seen]" can exceed PostgreSQL bind limit on large datasets.
+    const activeCategoryRows = await prisma.trendyolCategory.findMany({
+      where: { removedAt: null },
+      select: { categoryId: true }
     });
+    const staleCategoryIds = activeCategoryRows
+      .map((x) => x.categoryId)
+      .filter((id) => !seen.has(id));
+    for (const ids of chunkArray(staleCategoryIds, 1000)) {
+      await prisma.trendyolCategory.updateMany({
+        where: { categoryId: { in: ids }, removedAt: null },
+        data: { removedAt: now, isActive: false }
+      });
+    }
   }
 
   return { count: totalProcessed };

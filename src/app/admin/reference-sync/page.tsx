@@ -28,7 +28,9 @@ type SyncStatus = {
 
 export default function AdminReferenceSyncPage() {
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
+  const [runningAction, setRunningAction] = useState<
+    "all" | "brands" | "categories" | "attributes" | null
+  >(null);
   const [status, setStatus] = useState<SyncStatus>(null);
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -53,21 +55,57 @@ export default function AdminReferenceSyncPage() {
     void load();
   }, []);
 
-  async function syncNow() {
-    setRunning(true);
+  async function runSyncAction(
+    action: "all" | "brands" | "categories" | "attributes"
+  ) {
+    setRunningAction(action);
     setMessage(null);
     try {
-      const res = await fetch("/api/admin/reference-sync", { method: "POST" });
+      const requestMap: Record<
+        typeof action,
+        { url: string; init?: RequestInit; successMessage: string }
+      > = {
+        all: {
+          url: "/api/admin/reference-sync",
+          init: { method: "POST" },
+          successMessage: "Global referans senkronu tamamlandı."
+        },
+        brands: {
+          url: "/api/integrations/trendyol/sync-brands",
+          init: { method: "POST" },
+          successMessage: "Marka senkronu tamamlandı."
+        },
+        categories: {
+          url: "/api/integrations/trendyol/sync-categories",
+          init: { method: "POST" },
+          successMessage: "Kategori senkronu tamamlandı."
+        },
+        attributes: {
+          url: "/api/integrations/trendyol/sync-category-attributes",
+          init: {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ syncAllLeafCategories: true })
+          },
+          successMessage: "Kategori özellik/değer senkronu tamamlandı."
+        }
+      };
+      const req = requestMap[action];
+      const res = await fetch(req.url, req.init);
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data?.error || "Sync başarısız");
       }
-      setMessage("Global referans senkronu tamamlandı.");
+      setMessage(
+        typeof data.message === "string" && data.message
+          ? data.message
+          : req.successMessage
+      );
       await load();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Sync başarısız");
     } finally {
-      setRunning(false);
+      setRunningAction(null);
     }
   }
 
@@ -80,13 +118,43 @@ export default function AdminReferenceSyncPage() {
       <PanelSurface className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Global Referans Sync</h2>
-          <PremiumButton onClick={syncNow} disabled={running}>
-            {running ? "Çalışıyor..." : "Şimdi Senkron Et"}
+          <PremiumButton
+            onClick={() => runSyncAction("all")}
+            disabled={runningAction !== null}
+          >
+            {runningAction === "all" ? "Çalışıyor..." : "Toplu Senkron Et"}
           </PremiumButton>
         </div>
         <p className="text-sm text-slate-400">
           Günlük cron ile otomatik çalışır. Normal mağaza kullanıcıları bu ekranı göremez.
         </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <PremiumButton
+            variant="secondary"
+            onClick={() => runSyncAction("brands")}
+            disabled={runningAction !== null}
+          >
+            {runningAction === "brands" ? "Markalar çekiliyor..." : "Sadece Markaları Çek"}
+          </PremiumButton>
+          <PremiumButton
+            variant="secondary"
+            onClick={() => runSyncAction("categories")}
+            disabled={runningAction !== null}
+          >
+            {runningAction === "categories"
+              ? "Kategoriler çekiliyor..."
+              : "Sadece Kategorileri Çek"}
+          </PremiumButton>
+          <PremiumButton
+            variant="secondary"
+            onClick={() => runSyncAction("attributes")}
+            disabled={runningAction !== null}
+          >
+            {runningAction === "attributes"
+              ? "Özellikler çekiliyor..."
+              : "Sadece Alt Özellikleri Çek"}
+          </PremiumButton>
+        </div>
         {message && (
           <div className="rounded-md border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm">
             {message}
