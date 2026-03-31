@@ -292,6 +292,16 @@ Projede sık kullanılanlar (`.env` — tam listeyi repodaki örnekle karşıla�
 - İzin/rol güncellemesi: `node prisma/seed.js` (mevcut veriyi bozmadan upsert eder)  
 - Prisma Client: `npx prisma generate` (Windows’ta kilit hatası olursa çalışan Node süreçlerini kapatıp tekrar deneyin)
 
+### 7.1 Canlı sunucuda “eski sürüm” veya eksik menü (İadeler görünmüyor)
+
+Kod GitHub `main` dalındaysa sorun çoğunlukla **sunucunun son commit’i çekmemesi**, **build/migration atlanması** veya **oturumda eski izin listesi** olur.
+
+1. Sunucuda repo kökünde: `git fetch origin && git rev-parse HEAD && git rev-parse origin/main` — ikisi aynı commit olmalı.  
+2. `scripts/deploy.sh` çalıştırın (veya el ile: `npm ci`, `npx prisma generate`, `npx prisma migrate deploy`, `npm run build`, uygulamayı yeniden başlatın).  
+3. Yeni menüler (İadeler, Trendyol CHE, vb.) için `Permission` / `RolePermission` güncellenmiş olmalı: **bir kez** `RUN_SEED=1 ./scripts/deploy.sh` veya `node prisma/seed.js` (üretimde yalnızca gerektiğinde; seed çoğunlukla upsert yapar).  
+4. Kullanıcılar **çıkış yapıp tekrar giriş** yapmalı; `permissionKeys` JWT’de saklanır, eski oturumda `returns.view` olmayabilir.  
+5. Menü: **İadeler** solda yalnızca `returns.view` izni varsa görünür (`sidebar-menu-config.ts`).
+
 ---
 
 ## 8. Belgeyi güncelleme

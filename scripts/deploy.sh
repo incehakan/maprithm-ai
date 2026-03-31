@@ -20,6 +20,13 @@ npx prisma generate
 echo "[deploy] prisma migrate deploy"
 npx prisma migrate deploy
 
+# İlk kurulum veya yeni Permission/Role anahtarları sonrası bir kez:
+# RUN_SEED=1 ./scripts/deploy.sh
+if [ "${RUN_SEED:-0}" = "1" ]; then
+  echo "[deploy] prisma seed (RUN_SEED=1 — izin/rol upsert)"
+  node prisma/seed.js
+fi
+
 echo "[deploy] build"
 npm run build
 
