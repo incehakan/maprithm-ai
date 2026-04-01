@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { trendyolBrandListableWhere } from "@/lib/trendyolListable";
 
 /**
  * Trendyol marka combobox için sunucu taraflı arama.
@@ -29,7 +30,10 @@ export async function GET(request: Request) {
 
   const brands = await prisma.trendyolBrand.findMany({
     where: {
-      name: { contains: q, mode: "insensitive" }
+      AND: [
+        trendyolBrandListableWhere,
+        { name: { contains: q, mode: "insensitive" } }
+      ]
     },
     select: {
       brandId: true,

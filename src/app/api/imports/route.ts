@@ -37,6 +37,7 @@ export async function GET() {
         totalRows: true,
         successRows: true,
         failedRows: true,
+        overrideBrandName: true,
         createdAt: true,
         updatedAt: true
       }

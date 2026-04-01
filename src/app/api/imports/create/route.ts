@@ -115,6 +115,10 @@ export async function POST(request: Request) {
       ? `İlk ${MAX_ROWS} satır alındı (üst sınır).`
       : undefined;
 
+  const rawOverride = String(form.get("overrideBrandName") ?? "").trim();
+  const overrideBrandName =
+    rawOverride.length > 0 ? rawOverride.slice(0, 500) : null;
+
   const job = await prisma.importJob.create({
     data: {
       userId: ctx.userId,
@@ -124,13 +128,16 @@ export async function POST(request: Request) {
       status: "processing",
       totalRows: 0,
       successRows: 0,
-      failedRows: 0
+      failedRows: 0,
+      overrideBrandName
     }
   });
 
   try {
     const { payloads: rowPayloads, totalRows, successRows, failedRows } =
-      buildImportRowPayloads(job.id, records);
+      buildImportRowPayloads(job.id, records, {
+        overrideBrand: overrideBrandName
+      });
 
     await prisma.$transaction(
       async (tx) => {

@@ -15,6 +15,7 @@ type ImportJobSummary = {
   totalRows: number;
   successRows: number;
   failedRows: number;
+  overrideBrandName?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -56,6 +57,15 @@ function ImportsPageContent() {
   const [listErrorDetail, setListErrorDetail] = useState<string | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
+  const [brandQuery, setBrandQuery] = useState("");
+  const [brandHits, setBrandHits] = useState<
+    Array<{ brandId: number; name: string }>
+  >([]);
+  const [brandSearchLoading, setBrandSearchLoading] = useState(false);
+  const [selectedBrand, setSelectedBrand] = useState<{
+    brandId: number;
+    name: string;
+  } | null>(null);
   const [sourceOverride, setSourceOverride] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
@@ -252,6 +262,40 @@ function ImportsPageContent() {
     loadJobs();
   }, [loadJobs]);
 
+  useEffect(() => {
+    if (selectedBrand) {
+      setBrandHits([]);
+      return;
+    }
+    const q = brandQuery.trim();
+    if (q.length < 2) {
+      setBrandHits([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setBrandSearchLoading(true);
+      try {
+        const res = await fetch(
+          `/api/trendyol/brands/search?q=${encodeURIComponent(q)}&limit=40`
+        );
+        const data = await safeParseJsonResponse<{
+          brands?: Array<{ brandId: number; name: string }>;
+        }>(res);
+        if (!cancelled && res.ok && data?.brands) setBrandHits(data.brands);
+        else if (!cancelled) setBrandHits([]);
+      } catch {
+        if (!cancelled) setBrandHits([]);
+      } finally {
+        if (!cancelled) setBrandSearchLoading(false);
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [brandQuery, selectedBrand]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
@@ -266,6 +310,9 @@ function ImportsPageContent() {
       fd.append("file", file);
       if (sourceOverride === "csv" || sourceOverride === "xlsx" || sourceOverride === "xml") {
         fd.append("sourceType", sourceOverride);
+      }
+      if (selectedBrand?.name?.trim()) {
+        fd.append("overrideBrandName", selectedBrand.name.trim());
       }
       const res = await fetch("/api/imports/create", {
         method: "POST",
@@ -286,6 +333,9 @@ function ImportsPageContent() {
           : "İçe aktarma işi oluşturuldu."
       );
       setFile(null);
+      setSelectedBrand(null);
+      setBrandQuery("");
+      setBrandHits([]);
       const input = document.getElementById("import-file-input") as HTMLInputElement | null;
       if (input) input.value = "";
       await loadJobs();
@@ -458,6 +508,66 @@ function ImportsPageContent() {
             )}
           </div>
 
+          <div className="max-w-xl space-y-2">
+            <label className="label" htmlFor="import-brand-search">
+              Marka (isteğe bağlı)
+            </label>
+            <p className="text-xs text-slate-500 -mt-1">
+              Trendyol kataloğundan seçilir; seçildiğinde dosyadaki marka alanı tüm satırlarda bu
+              değerle değiştirilir. Boş bırakırsanız XML/CSV içindeki marka kullanılır.
+            </p>
+            {selectedBrand ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-3 py-2 text-sm">
+                <span className="text-slate-200">{selectedBrand.name}</span>
+                <span className="text-xs text-slate-500">(id {selectedBrand.brandId})</span>
+                <button
+                  type="button"
+                  className="text-xs text-amber-400/90 hover:text-amber-300"
+                  onClick={() => {
+                    setSelectedBrand(null);
+                    setBrandQuery("");
+                  }}
+                >
+                  Kaldır
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  id="import-brand-search"
+                  type="text"
+                  className="input"
+                  placeholder="En az 2 harf yazın (örn. Nike)"
+                  autoComplete="off"
+                  value={brandQuery}
+                  onChange={(e) => setBrandQuery(e.target.value)}
+                />
+                {brandSearchLoading && (
+                  <p className="text-xs text-slate-500">Aranıyor…</p>
+                )}
+                {brandHits.length > 0 && (
+                  <ul className="max-h-48 overflow-auto rounded-lg border border-slate-700 bg-slate-900/80 text-sm">
+                    {brandHits.map((b) => (
+                      <li key={b.brandId}>
+                        <button
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-800"
+                          onClick={() => {
+                            setSelectedBrand(b);
+                            setBrandQuery("");
+                            setBrandHits([]);
+                          }}
+                        >
+                          {b.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="max-w-xs">
             <label className="label" htmlFor="source-type-override">
               Kaynak tipi (isteğe bağlı)
@@ -527,6 +637,7 @@ function ImportsPageContent() {
               <thead>
                 <tr className="border-b border-slate-700 text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-2 pr-3">Dosya</th>
+                  <th className="pb-2 pr-3">Marka (ezme)</th>
                   <th className="pb-2 pr-3">Kaynak</th>
                   <th className="pb-2 pr-3">Durum</th>
                   <th className="pb-2 pr-3">Kullanım</th>
@@ -552,6 +663,13 @@ function ImportsPageContent() {
                   >
                     <td className="py-2 pr-3 max-w-[200px] truncate" title={j.originalFileName}>
                       {j.originalFileName}
+                    </td>
+                    <td className="py-2 pr-3 max-w-[140px] truncate text-xs text-slate-400" title={j.overrideBrandName ?? ""}>
+                      {j.overrideBrandName?.trim() ? (
+                        <span className="text-indigo-300/90">{j.overrideBrandName}</span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2 pr-3 font-mono text-xs text-slate-400">
                       {j.sourceType}

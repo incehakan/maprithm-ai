@@ -286,6 +286,8 @@ model ImportJob {
   totalRows        Int      @default(0)
   successRows      Int      @default(0)
   failedRows       Int      @default(0)
+  // İçe aktarmada seçildiyse tüm satırlarda normalizedBrand bununla yazılır (dosyadaki markayı ezer).
+  overrideBrandName String?
 
   rows ImportRow[]
 
