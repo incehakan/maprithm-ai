@@ -551,6 +551,21 @@ export function buildDeterministicAttributeSuggestions(
         isRequired: def.isRequired,
         reason: matched.reason
       });
+    } else if (def.allowCustom && productPairs.length > 0) {
+      // Bazı kategorilerde predefined value listesi çok uzun olduğundan
+      // eşleşecek value prompt setine girmeyebilir. Bu durumda ham ürün
+      // ölçüsünü customValue olarak taşıyarak yanlış valueId seçimlerini azaltırız.
+      const p = productPairs[0];
+      results.push({
+        attributeId: def.attributeId,
+        attributeName: def.attributeName,
+        attributeValueId: null,
+        attributeValue: null,
+        customValue: `${p.a} x ${p.b}`,
+        isRequired: def.isRequired,
+        reason:
+          "Predefined listede bire bir eşleşme bulunamadı; ölçü customValue olarak yazıldı."
+      });
     }
   }
 
