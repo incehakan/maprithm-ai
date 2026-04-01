@@ -13,7 +13,8 @@ import { buildImportRowPayloads } from "@/lib/importJobProcessing";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
+/** CSV / XLSX / XML içe aktarma tek dosya üst sınırı (self-hosted + ters vekil client_max_body_size ile uyumlu olmalı). */
+const MAX_FILE_BYTES = 500 * 1024 * 1024;
 
 function getUserIdFromSession(session: {
   user?: { id?: string } | null;
