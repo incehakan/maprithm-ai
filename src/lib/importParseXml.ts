@@ -128,12 +128,25 @@ function extractXmlRowObjects(root: unknown): Record<string, unknown>[] {
   return [decorateWithImages(asRoot, objectToFlatRecord(asRoot))];
 }
 
+/** fast-xml-parser varsayılanı maxTotalExpansions=1000; büyük feed'lerde &amp; vb. çok olduğunda "Entity expansion limit exceeded" oluşur. */
+const XML_ENTITY_LIMITS = {
+  maxTotalExpansions: 50_000_000,
+  maxEntityCount: 500_000,
+  maxEntitySize: 500_000,
+  maxExpansionDepth: 32,
+  maxExpandedLength: 500_000_000
+} as const;
+
 export function parseXmlBuffer(buffer: Buffer): ParsedImportRecord[] {
   const xml = buffer.toString("utf8");
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: "@_",
-    trimValues: true
+    trimValues: true,
+    processEntities: {
+      enabled: true,
+      ...XML_ENTITY_LIMITS
+    }
   });
 
   let root: unknown;
