@@ -11,7 +11,11 @@ import {
 import { buildImportRowPayloads } from "@/lib/importJobProcessing";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+/** Büyük dosya + çok satır: parse + DB batch; platform üst sınırına göre kısılır. */
+export const maxDuration = 900;
+
+/** Prisma varsayılan interactive transaction timeout 5s; çok satırda createMany döngüsü yetmez. */
+const IMPORT_PERSIST_TX_MS = 15 * 60 * 1000;
 
 /** CSV / XLSX / XML içe aktarma tek dosya üst sınırı (self-hosted + ters vekil client_max_body_size ile uyumlu olmalı). */
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
@@ -128,22 +132,28 @@ export async function POST(request: Request) {
     const { payloads: rowPayloads, totalRows, successRows, failedRows } =
       buildImportRowPayloads(job.id, records);
 
-    await prisma.$transaction(async (tx) => {
-      const BATCH = 200;
-      for (let i = 0; i < rowPayloads.length; i += BATCH) {
-        const chunk = rowPayloads.slice(i, i + BATCH);
-        await tx.importRow.createMany({ data: chunk });
-      }
-      await tx.importJob.update({
-        where: { id: job.id },
-        data: {
-          status: "completed",
-          totalRows,
-          successRows,
-          failedRows
+    await prisma.$transaction(
+      async (tx) => {
+        const BATCH = 200;
+        for (let i = 0; i < rowPayloads.length; i += BATCH) {
+          const chunk = rowPayloads.slice(i, i + BATCH);
+          await tx.importRow.createMany({ data: chunk });
         }
-      });
-    });
+        await tx.importJob.update({
+          where: { id: job.id },
+          data: {
+            status: "completed",
+            totalRows,
+            successRows,
+            failedRows
+          }
+        });
+      },
+      {
+        timeout: IMPORT_PERSIST_TX_MS,
+        maxWait: 60_000
+      }
+    );
 
     const updated = await prisma.importJob.findUnique({
       where: { id: job.id }
