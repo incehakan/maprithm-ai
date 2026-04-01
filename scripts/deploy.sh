@@ -2,7 +2,8 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-$(pwd)}"
-PM2_NAME="${PM2_NAME:-maprithm-ticaret-ai}"
+# Çoğu canlı kurulumda süreç adı `maprithm`; farklıysa: PM2_NAME=senin-adin ./scripts/deploy.sh
+PM2_NAME="${PM2_NAME:-maprithm}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/api/health}"
 
 echo "[deploy] app dir: ${APP_DIR}"

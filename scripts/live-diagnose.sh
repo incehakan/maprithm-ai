@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-$(pwd)}"
-PM2_NAME="${PM2_NAME:-maprithm-ticaret-ai}"
+PM2_NAME="${PM2_NAME:-maprithm}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:3000}"
 HEALTH_URL="${HEALTH_URL:-${BASE_URL}/api/health}"
 EXPECTED_BRANCH="${EXPECTED_BRANCH:-main}"
