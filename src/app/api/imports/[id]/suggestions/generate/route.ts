@@ -25,7 +25,8 @@ import {
   buildDeterministicAttributeSuggestions,
   buildAttributeFallbackMissing,
   callOpenAiTrendyolAttributeSuggestions,
-  loadCategoryAttributeDefs,
+  loadCategoryAttributeDefsAiAndDeterministic,
+  extractExtraDimensionTextFromRawData,
   type AttributeAiItemOutput,
   type AttributeSuggestionPersistRow,
   type MissingRequiredAttributeItem
@@ -171,12 +172,27 @@ export async function POST(request: Request, { params }: Params) {
     where: rowWhere
   });
 
+  const categoryAttributeDefsCache = new Map<
+    number,
+    Awaited<ReturnType<typeof loadCategoryAttributeDefsAiAndDeterministic>>
+  >();
+
+  async function getCategoryAttributeDefsPair(categoryId: number) {
+    let cached = categoryAttributeDefsCache.get(categoryId);
+    if (!cached) {
+      cached = await loadCategoryAttributeDefsAiAndDeterministic(categoryId);
+      categoryAttributeDefsCache.set(categoryId, cached);
+    }
+    return cached;
+  }
+
   const importRows = await prisma.importRow.findMany({
     where: rowWhere,
     select: {
       id: true,
       rowIndex: true,
       status: true,
+      rawData: true,
       normalizedName: true,
       normalizedDescription: true,
       normalizedBrand: true,
@@ -417,7 +433,8 @@ export async function POST(request: Request, { params }: Params) {
         missingRequiredCount: 0
       };
     } else {
-      const attrDefs = await loadCategoryAttributeDefs(catId);
+      const { forAi: attrDefs, forDeterministic: attrDefsDeterministic } =
+        await getCategoryAttributeDefsPair(catId);
       if (attrDefs.length === 0) {
         attributeSuggestions = {
           definitionCount: 0,
@@ -429,6 +446,7 @@ export async function POST(request: Request, { params }: Params) {
         const attrInput = {
           normalizedName: row.normalizedName,
           normalizedDescription: row.normalizedDescription,
+          extraDimensionText: extractExtraDimensionTextFromRawData(row.rawData),
           suggestedCategoryId: catId,
           suggestedCategoryName: suggestion.suggestedCategoryName,
           attributes: attrDefs
@@ -481,7 +499,10 @@ export async function POST(request: Request, { params }: Params) {
 
         // Deterministik düzeltme: Boyut/Ebat gibi ölçü alanlarında metinden bire bir eşleşme
         // yakalanırsa AI seçimi override edilir.
-        const deterministic = buildDeterministicAttributeSuggestions(attrInput);
+        const deterministic = buildDeterministicAttributeSuggestions({
+          ...attrInput,
+          attributes: attrDefsDeterministic
+        });
         if (deterministic.length > 0) {
           const detByAttr = new Map(deterministic.map((d) => [d.attributeId, d]));
 

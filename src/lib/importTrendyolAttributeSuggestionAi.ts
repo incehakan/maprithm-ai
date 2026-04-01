@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { openai } from "@/lib/openai";
+import { normalizeFieldKey } from "@/lib/importFlexibleFieldMap";
 
 const MODEL = "gpt-4.1-mini";
 const MAX_VALUES_PER_ATTRIBUTE = 120;
@@ -16,6 +17,11 @@ export type CategoryAttributeDef = {
 export type AttributeSuggestionAiInput = {
   normalizedName: string | null;
   normalizedDescription: string | null;
+  /**
+   * XML/JSON ham alanlarından (attributes_attribute, varyant ölçü vb.) çıkarılan ek metin.
+   * AI ve deterministik ölçü eşlemesi için kullanılır; name/description ile birleşmez (ayrı kaynak).
+   */
+  extraDimensionText?: string | null;
   suggestedCategoryId: number;
   suggestedCategoryName: string | null;
   attributes: CategoryAttributeDef[];
@@ -100,6 +106,66 @@ export async function loadCategoryAttributeDefs(
   }));
 }
 
+/**
+ * AI: ilk N değer; deterministik: ölçü benzeri özelliklerde tam liste (yanlış valueId riskini azaltır).
+ */
+export async function loadCategoryAttributeDefsAiAndDeterministic(
+  categoryId: number
+): Promise<{
+  forAi: CategoryAttributeDef[];
+  forDeterministic: CategoryAttributeDef[];
+}> {
+  const [capped, full] = await Promise.all([
+    loadCategoryAttributeDefs(categoryId),
+    loadCategoryAttributeDefs(categoryId, { allValues: true })
+  ]);
+  const forDeterministic = capped.map((d) => {
+    if (!isSizeLikeTrendyolAttributeName(d.attributeName)) return d;
+    const f = full.find((x) => x.attributeId === d.attributeId);
+    return f ? { ...d, values: f.values } : d;
+  });
+  return { forAi: capped, forDeterministic };
+}
+
+/** Trendyol attribute adı ölçü / ebat / tablo ölçüsü gibi bir alan mı? */
+export function isSizeLikeTrendyolAttributeName(name: string): boolean {
+  const n = name.toLowerCase();
+  return /(boyut|ebat|ölçü|olcu|en x boy|enxboy|dimension|size|tablo)/.test(n);
+}
+
+/**
+ * Import satırı rawData içinden ölçüyle ilgili alanları toplar (attributes_attribute vb.).
+ */
+export function extractExtraDimensionTextFromRawData(
+  rawData: unknown
+): string | null {
+  if (rawData == null || typeof rawData !== "object") return null;
+  const o = rawData as Record<string, unknown>;
+  const parts: string[] = [];
+  const seen = new Set<string>();
+
+  for (const [k, v] of Object.entries(o)) {
+    if (v == null) continue;
+    const nk = normalizeFieldKey(k);
+    if (nk.length < 2) continue;
+    const kl = nk.toLowerCase();
+    const looksDimension =
+      /(attribute|olcu|olçü|ebat|boyut|measure|size|dimension|varyant|tablo)/.test(
+        kl
+      );
+    if (!looksDimension) continue;
+
+    const s = String(v).trim();
+    if (!s || s.length > 2000) continue;
+    const dedup = `${nk}:${s}`;
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    parts.push(s);
+  }
+
+  return parts.length ? parts.join("\n") : null;
+}
+
 export function buildAttributeSuggestionUserPrompt(
   input: AttributeSuggestionAiInput
 ): string {
@@ -122,11 +188,14 @@ export function buildAttributeSuggestionUserPrompt(
         : undefined
   }));
 
+  const extra = input.extraDimensionText?.trim();
+
   return `Trendyol yaprak kategorisindeki ürün özellikleri için değer öner.
 
 ## Ürün
 - normalizedName: ${JSON.stringify(input.normalizedName ?? "")}
 - normalizedDescription: ${JSON.stringify(input.normalizedDescription ?? "")}
+${extra ? `- extraDimensionText (ham XML/JSON alanlarından ölçü ipuçları): ${JSON.stringify(extra)}` : ""}
 
 ## Seçilen kategori
 - categoryId: ${input.suggestedCategoryId}
@@ -451,7 +520,11 @@ function normalizeDimensionNumber(n: string): string {
   return Number.isInteger(num) ? String(num) : String(num).replace(/\.0+$/, "");
 }
 
-type ProductDimensionPair = { a: string; b: string; source: "name" | "description" };
+type ProductDimensionPair = {
+  a: string;
+  b: string;
+  source: "name" | "description" | "raw";
+};
 
 function extractDimensionPairs(text: string): Array<{ a: string; b: string }> {
   const out: Array<{ a: string; b: string }> = [];
@@ -468,7 +541,8 @@ function extractDimensionPairs(text: string): Array<{ a: string; b: string }> {
 
 function extractProductDimensionPairs(
   name: string | null,
-  description: string | null
+  description: string | null,
+  extra: string | null | undefined
 ): ProductDimensionPair[] {
   const out: ProductDimensionPair[] = [];
   const seen = new Set<string>();
@@ -484,12 +558,25 @@ function extractProductDimensionPairs(
     seen.add(key);
     out.push({ ...p, source: "description" });
   }
+  for (const p of extractDimensionPairs(extra ?? "")) {
+    const key = `${p.a}x${p.b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...p, source: "raw" });
+  }
   return out;
 }
 
-function isSizeAttributeName(name: string): boolean {
-  const n = name.toLowerCase();
-  return /(boyut|ebat|ölçü|olcu|en x boy|enxboy|dimension|size)/.test(n);
+function dimensionSourceBonus(source: ProductDimensionPair["source"]): number {
+  if (source === "name") return 100;
+  if (source === "description") return 50;
+  return 25;
+}
+
+function dimensionSourceLabel(source: ProductDimensionPair["source"]): string {
+  if (source === "name") return "adındaki";
+  if (source === "description") return "açıklamadaki";
+  return "ham alandaki";
 }
 
 function pairEquals(
@@ -511,14 +598,15 @@ export function buildDeterministicAttributeSuggestions(
 ): DeterministicAttributeSuggestion[] {
   const productPairs = extractProductDimensionPairs(
     input.normalizedName,
-    input.normalizedDescription
+    input.normalizedDescription,
+    input.extraDimensionText
   );
   if (productPairs.length === 0) return [];
 
   const results: DeterministicAttributeSuggestion[] = [];
 
   for (const def of input.attributes) {
-    if (!isSizeAttributeName(def.attributeName)) continue;
+    if (!isSizeLikeTrendyolAttributeName(def.attributeName)) continue;
     if (!def.values.length) continue;
 
     let matched:
@@ -531,7 +619,7 @@ export function buildDeterministicAttributeSuggestions(
         const direct = valuePairs.some((vp) => pairEquals(vp, pv, false));
         const reverse = !direct && valuePairs.some((vp) => pairEquals(vp, pv, true));
         if (!direct && !reverse) continue;
-        const sourceBonus = pv.source === "name" ? 100 : 0;
+        const sourceBonus = dimensionSourceBonus(pv.source);
         const score = sourceBonus + (direct ? 10 : 0);
         if (!matched || score > matched.score) {
           matched = {
@@ -539,8 +627,8 @@ export function buildDeterministicAttributeSuggestions(
             attributeValue: v.attributeValue,
             score,
             reason: direct
-              ? `Ürün ${pv.source === "name" ? "adındaki" : "açıklamasındaki"} ölçü (${pv.a}x${pv.b}) ile bire bir eşleşti.`
-              : `Ürün ${pv.source === "name" ? "adındaki" : "açıklamasındaki"} ölçü (${pv.a}x${pv.b}) ters sıra ile eşleşti.`
+              ? `Ürün ${dimensionSourceLabel(pv.source)} ölçü (${pv.a}x${pv.b}) ile bire bir eşleşti.`
+              : `Ürün ${dimensionSourceLabel(pv.source)} ölçü (${pv.a}x${pv.b}) ters sıra ile eşleşti.`
           };
         }
       }
@@ -569,7 +657,7 @@ export function buildDeterministicAttributeSuggestions(
         customValue: `${p.a} x ${p.b}`,
         isRequired: def.isRequired,
         reason:
-          `Predefined listede eşleşme yok; ürün ${p.source === "name" ? "adındaki" : "açıklamasındaki"} ölçü customValue olarak yazıldı.`
+          `Predefined listede eşleşme yok; ürün ${dimensionSourceLabel(p.source)} ölçü customValue olarak yazıldı.`
       });
     }
   }
