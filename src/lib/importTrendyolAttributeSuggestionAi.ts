@@ -21,6 +21,16 @@ export type AttributeSuggestionAiInput = {
   attributes: CategoryAttributeDef[];
 };
 
+export type DeterministicAttributeSuggestion = {
+  attributeId: number;
+  attributeName: string;
+  attributeValueId: number | null;
+  attributeValue: string | null;
+  customValue: string | null;
+  isRequired: boolean;
+  reason: string;
+};
+
 /** AI JSON satırı (yanıt + API) */
 export type AttributeAiItemOutput = {
   attributeId: number;
@@ -431,4 +441,118 @@ export function buildAttributeFallbackMissing(
     missingRequired: collectAllRequiredMissing(defs, reason),
     warnings: [`Özellik AI fallback: ${reason}`]
   };
+}
+
+function normalizeDimensionNumber(n: string): string {
+  const trimmed = n.trim().replace(",", ".");
+  const num = Number(trimmed);
+  if (!Number.isFinite(num)) return trimmed;
+  // 60.0 => 60, 60.5 => 60.5
+  return Number.isInteger(num) ? String(num) : String(num).replace(/\.0+$/, "");
+}
+
+function extractDimensionPairs(text: string): Array<{ a: string; b: string }> {
+  const out: Array<{ a: string; b: string }> = [];
+  const re = /(\d+(?:[.,]\d+)?)\s*(?:x|X|×|\*)\s*(\d+(?:[.,]\d+)?)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) != null) {
+    const a = normalizeDimensionNumber(m[1]);
+    const b = normalizeDimensionNumber(m[2]);
+    if (!a || !b) continue;
+    out.push({ a, b });
+  }
+  return out;
+}
+
+function isSizeAttributeName(name: string): boolean {
+  const n = name.toLowerCase();
+  return /(boyut|ebat|ölçü|olcu|en x boy|enxboy|dimension|size)/.test(n);
+}
+
+function pairEquals(
+  x: { a: string; b: string },
+  y: { a: string; b: string },
+  allowReverse: boolean
+): boolean {
+  if (x.a === y.a && x.b === y.b) return true;
+  if (!allowReverse) return false;
+  return x.a === y.b && x.b === y.a;
+}
+
+/**
+ * Deterministik kural: ürün ad/açıklamasındaki 60x120 gibi ölçüyü,
+ * Boyut/Ebat tipi attribute değerleriyle bire bir eşleştirir.
+ */
+export function buildDeterministicAttributeSuggestions(
+  input: AttributeSuggestionAiInput
+): DeterministicAttributeSuggestion[] {
+  const haystack = `${input.normalizedName ?? ""} ${input.normalizedDescription ?? ""}`.trim();
+  if (!haystack) return [];
+  const productPairs = extractDimensionPairs(haystack);
+  if (productPairs.length === 0) return [];
+
+  const results: DeterministicAttributeSuggestion[] = [];
+
+  for (const def of input.attributes) {
+    if (!isSizeAttributeName(def.attributeName)) continue;
+    if (!def.values.length) continue;
+
+    let matched:
+      | {
+          attributeValueId: number;
+          attributeValue: string;
+          reason: string;
+        }
+      | null = null;
+
+    for (const pv of productPairs) {
+      for (const v of def.values) {
+        const valuePairs = extractDimensionPairs(v.attributeValue);
+        if (valuePairs.length === 0) continue;
+        const hasDirect = valuePairs.some((vp) => pairEquals(vp, pv, false));
+        if (hasDirect) {
+          matched = {
+            attributeValueId: v.attributeValueId,
+            attributeValue: v.attributeValue,
+            reason: `Ürün ölçüsü (${pv.a}x${pv.b}) ile bire bir eşleşti.`
+          };
+          break;
+        }
+      }
+      if (matched) break;
+    }
+
+    if (!matched) {
+      for (const pv of productPairs) {
+        for (const v of def.values) {
+          const valuePairs = extractDimensionPairs(v.attributeValue);
+          if (valuePairs.length === 0) continue;
+          const hasReverse = valuePairs.some((vp) => pairEquals(vp, pv, true));
+          if (hasReverse) {
+            matched = {
+              attributeValueId: v.attributeValueId,
+              attributeValue: v.attributeValue,
+              reason: `Ürün ölçüsü (${pv.a}x${pv.b}) ters sıra ile eşleşti.`
+            };
+            break;
+          }
+        }
+        if (matched) break;
+      }
+    }
+
+    if (matched) {
+      results.push({
+        attributeId: def.attributeId,
+        attributeName: def.attributeName,
+        attributeValueId: matched.attributeValueId,
+        attributeValue: matched.attributeValue,
+        customValue: null,
+        isRequired: def.isRequired,
+        reason: matched.reason
+      });
+    }
+  }
+
+  return results;
 }

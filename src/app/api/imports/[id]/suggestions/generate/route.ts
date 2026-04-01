@@ -20,7 +20,9 @@ import {
   type TrendyolSuggestionAiParsed
 } from "@/lib/importTrendyolSuggestionAi";
 import { buildTrendyolDbFallbackSuggestion } from "@/lib/trendyolFallbackMatch";
+import { postProcessTrendyolSuggestion } from "@/lib/importTrendyolSuggestionPostProcess";
 import {
+  buildDeterministicAttributeSuggestions,
   buildAttributeFallbackMissing,
   callOpenAiTrendyolAttributeSuggestions,
   loadCategoryAttributeDefs,
@@ -352,6 +354,24 @@ export async function POST(request: Request, { params }: Params) {
       });
     }
 
+    suggestion = postProcessTrendyolSuggestion({
+      suggestion,
+      normalizedBrand: row.normalizedBrand,
+      normalizedCategoryText: row.normalizedCategoryText,
+      normalizedName: row.normalizedName,
+      brandCandidates: brandCandidates.map((b) => ({
+        brandId: b.brandId,
+        name: b.name,
+        score: b.score
+      })),
+      categoryCandidates: categoryCandidates.map((c) => ({
+        categoryId: c.categoryId,
+        name: c.name,
+        isLeaf: c.isLeaf,
+        score: c.score
+      }))
+    });
+
     const suggestionData = {
       status: "suggested" as const,
       suggestedBrandId: suggestion.suggestedBrandId,
@@ -448,6 +468,52 @@ export async function POST(request: Request, { params }: Params) {
             missingRequired = fb.missingRequired;
             attrWarnings = fb.warnings;
           }
+        }
+
+        // Deterministik düzeltme: Boyut/Ebat gibi ölçü alanlarında metinden bire bir eşleşme
+        // yakalanırsa AI seçimi override edilir.
+        const deterministic = buildDeterministicAttributeSuggestions(attrInput);
+        if (deterministic.length > 0) {
+          const detByAttr = new Map(deterministic.map((d) => [d.attributeId, d]));
+
+          const mergedPersist = new Map(
+            persistRows.map((r) => [r.attributeId, r] as const)
+          );
+          for (const d of deterministic) {
+            mergedPersist.set(d.attributeId, {
+              attributeId: d.attributeId,
+              attributeName: d.attributeName,
+              attributeValueId: d.attributeValueId,
+              attributeValue: d.attributeValue,
+              customValue: d.customValue,
+              isRequired: d.isRequired
+            });
+          }
+          persistRows = [...mergedPersist.values()];
+
+          const mergedAi = new Map(aiItems.map((r) => [r.attributeId, r] as const));
+          for (const d of deterministic) {
+            mergedAi.set(d.attributeId, {
+              attributeId: d.attributeId,
+              attributeName: d.attributeName,
+              attributeValueId: d.attributeValueId,
+              attributeValue: d.attributeValue,
+              customValue: d.customValue,
+              confidenceScore: 99,
+              isRequired: d.isRequired
+            });
+          }
+          aiItems = [...mergedAi.values()];
+
+          // Eksik zorunlu listesi override edilenlerle güncellensin.
+          missingRequired = missingRequired.filter((m) => !detByAttr.has(m.attributeId));
+          attrWarnings = [
+            ...attrWarnings,
+            ...deterministic.map(
+              (d) =>
+                `Deterministik eşleşme: ${d.attributeName} -> ${d.attributeValue ?? d.customValue ?? "—"} (${d.reason})`
+            )
+          ];
         }
 
         if (persistRows.length > 0) {
