@@ -181,7 +181,7 @@ function ImportJobDetailPageContent() {
     setSelectedRowIds(new Set());
   }, []);
 
-  const handleGenerateTrendyolSuggestions = useCallback(async () => {
+  const handleGenerateTrendyolSuggestions = useCallback(async (regenerate = false) => {
     if (!id) return;
     const selectedIds = Array.from(selectedRowIds);
     const scopeSelected = selectedIds.length > 0;
@@ -207,6 +207,7 @@ function ImportJobDetailPageContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...(scopeSelected ? { importRowIds: selectedIds } : {}),
+            ...(regenerate ? { regenerate: true } : {}),
             limit: TRENDYOL_SUGGEST_BATCH,
             offset
           })
@@ -255,9 +256,11 @@ function ImportJobDetailPageContent() {
         message:
           totalRows > 0
             ? scopeSelected
-              ? `Seçilen satırlar için AI önerileri tamamlandı (${totalRows} satır).`
-              : `AI önerileri tamamlandı (${totalRows} satır).`
-            : "AI önerileri oluşturuldu."
+              ? `${regenerate ? "Seçilen satırlar yeniden üretildi" : "Seçilen satırlar için AI önerileri tamamlandı"} (${totalRows} satır).`
+              : `${regenerate ? "AI önerileri yeniden üretildi" : "AI önerileri tamamlandı"} (${totalRows} satır).`
+            : regenerate
+              ? "AI önerileri yeniden üretildi."
+              : "AI önerileri oluşturuldu."
       });
       window.setTimeout(() => {
         router.push(`/imports/${id}/trendyol-suggestions`);
@@ -421,22 +424,39 @@ function ImportJobDetailPageContent() {
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                disabled={
-                  generateLoading ||
-                  job.totalRows === 0 ||
-                  (job.usageStatus ?? "active") !== "active"
-                }
-                onClick={handleGenerateTrendyolSuggestions}
-                className="btn-primary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {generateLoading
-                  ? "Öneriler oluşturuluyor…"
-                  : selectedRowIds.size > 0
-                    ? `Seçilenler için AI (${selectedRowIds.size})`
-                    : "Trendyol AI Önerileri Oluştur (tümü)"}
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  disabled={
+                    generateLoading ||
+                    job.totalRows === 0 ||
+                    (job.usageStatus ?? "active") !== "active"
+                  }
+                  onClick={() => handleGenerateTrendyolSuggestions(false)}
+                  className="btn-primary whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {generateLoading
+                    ? "Öneriler oluşturuluyor…"
+                    : selectedRowIds.size > 0
+                      ? `Seçilenler için AI (${selectedRowIds.size})`
+                      : "Trendyol AI Önerileri Oluştur (tümü)"}
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    generateLoading ||
+                    job.totalRows === 0 ||
+                    (job.usageStatus ?? "active") !== "active"
+                  }
+                  onClick={() => handleGenerateTrendyolSuggestions(true)}
+                  className="btn-secondary whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Mevcut önerileri silmeden, aynı satırlar için yeniden üretip günceller."
+                >
+                  {selectedRowIds.size > 0
+                    ? `Seçilenleri Yeniden Oluştur (${selectedRowIds.size})`
+                    : "Tümünü Yeniden Oluştur"}
+                </button>
+              </div>
             </div>
 
             {failedInDb > 0 && (
