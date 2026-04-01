@@ -451,6 +451,8 @@ function normalizeDimensionNumber(n: string): string {
   return Number.isInteger(num) ? String(num) : String(num).replace(/\.0+$/, "");
 }
 
+type ProductDimensionPair = { a: string; b: string; source: "name" | "description" };
+
 function extractDimensionPairs(text: string): Array<{ a: string; b: string }> {
   const out: Array<{ a: string; b: string }> = [];
   const re = /(\d+(?:[.,]\d+)?)\s*(?:x|X|×|\*)\s*(\d+(?:[.,]\d+)?)/g;
@@ -460,6 +462,27 @@ function extractDimensionPairs(text: string): Array<{ a: string; b: string }> {
     const b = normalizeDimensionNumber(m[2]);
     if (!a || !b) continue;
     out.push({ a, b });
+  }
+  return out;
+}
+
+function extractProductDimensionPairs(
+  name: string | null,
+  description: string | null
+): ProductDimensionPair[] {
+  const out: ProductDimensionPair[] = [];
+  const seen = new Set<string>();
+  for (const p of extractDimensionPairs(name ?? "")) {
+    const key = `${p.a}x${p.b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...p, source: "name" });
+  }
+  for (const p of extractDimensionPairs(description ?? "")) {
+    const key = `${p.a}x${p.b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...p, source: "description" });
   }
   return out;
 }
@@ -486,9 +509,10 @@ function pairEquals(
 export function buildDeterministicAttributeSuggestions(
   input: AttributeSuggestionAiInput
 ): DeterministicAttributeSuggestion[] {
-  const haystack = `${input.normalizedName ?? ""} ${input.normalizedDescription ?? ""}`.trim();
-  if (!haystack) return [];
-  const productPairs = extractDimensionPairs(haystack);
+  const productPairs = extractProductDimensionPairs(
+    input.normalizedName,
+    input.normalizedDescription
+  );
   if (productPairs.length === 0) return [];
 
   const results: DeterministicAttributeSuggestion[] = [];
@@ -498,46 +522,27 @@ export function buildDeterministicAttributeSuggestions(
     if (!def.values.length) continue;
 
     let matched:
-      | {
-          attributeValueId: number;
-          attributeValue: string;
-          reason: string;
-        }
+      | { attributeValueId: number; attributeValue: string; reason: string; score: number }
       | null = null;
-
     for (const pv of productPairs) {
       for (const v of def.values) {
         const valuePairs = extractDimensionPairs(v.attributeValue);
         if (valuePairs.length === 0) continue;
-        const hasDirect = valuePairs.some((vp) => pairEquals(vp, pv, false));
-        if (hasDirect) {
+        const direct = valuePairs.some((vp) => pairEquals(vp, pv, false));
+        const reverse = !direct && valuePairs.some((vp) => pairEquals(vp, pv, true));
+        if (!direct && !reverse) continue;
+        const sourceBonus = pv.source === "name" ? 100 : 0;
+        const score = sourceBonus + (direct ? 10 : 0);
+        if (!matched || score > matched.score) {
           matched = {
             attributeValueId: v.attributeValueId,
             attributeValue: v.attributeValue,
-            reason: `Ürün ölçüsü (${pv.a}x${pv.b}) ile bire bir eşleşti.`
+            score,
+            reason: direct
+              ? `Ürün ${pv.source === "name" ? "adındaki" : "açıklamasındaki"} ölçü (${pv.a}x${pv.b}) ile bire bir eşleşti.`
+              : `Ürün ${pv.source === "name" ? "adındaki" : "açıklamasındaki"} ölçü (${pv.a}x${pv.b}) ters sıra ile eşleşti.`
           };
-          break;
         }
-      }
-      if (matched) break;
-    }
-
-    if (!matched) {
-      for (const pv of productPairs) {
-        for (const v of def.values) {
-          const valuePairs = extractDimensionPairs(v.attributeValue);
-          if (valuePairs.length === 0) continue;
-          const hasReverse = valuePairs.some((vp) => pairEquals(vp, pv, true));
-          if (hasReverse) {
-            matched = {
-              attributeValueId: v.attributeValueId,
-              attributeValue: v.attributeValue,
-              reason: `Ürün ölçüsü (${pv.a}x${pv.b}) ters sıra ile eşleşti.`
-            };
-            break;
-          }
-        }
-        if (matched) break;
       }
     }
 
@@ -564,7 +569,7 @@ export function buildDeterministicAttributeSuggestions(
         customValue: `${p.a} x ${p.b}`,
         isRequired: def.isRequired,
         reason:
-          "Predefined listede bire bir eşleşme bulunamadı; ölçü customValue olarak yazıldı."
+          `Predefined listede eşleşme yok; ürün ${p.source === "name" ? "adındaki" : "açıklamasındaki"} ölçü customValue olarak yazıldı.`
       });
     }
   }

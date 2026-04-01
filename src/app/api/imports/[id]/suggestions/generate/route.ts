@@ -438,6 +438,7 @@ export async function POST(request: Request, { params }: Params) {
         let aiItems: AttributeAiItemOutput[];
         let missingRequired: MissingRequiredAttributeItem[];
         let attrWarnings: string[];
+        let attributeReasonMap: Record<string, string>;
         let attrUsedFallback = false;
         let attrError: string | undefined;
 
@@ -451,6 +452,7 @@ export async function POST(request: Request, { params }: Params) {
           aiItems = fb.aiItems;
           missingRequired = fb.missingRequired;
           attrWarnings = fb.warnings;
+          attributeReasonMap = {};
         } else {
           const attrRes = await callOpenAiTrendyolAttributeSuggestions(attrInput);
 
@@ -459,6 +461,7 @@ export async function POST(request: Request, { params }: Params) {
             aiItems = attrRes.aiItems;
             missingRequired = attrRes.missingRequired;
             attrWarnings = attrRes.warnings;
+            attributeReasonMap = {};
           } else {
             attrUsedFallback = true;
             attrError = attrRes.error;
@@ -467,7 +470,13 @@ export async function POST(request: Request, { params }: Params) {
             aiItems = fb.aiItems;
             missingRequired = fb.missingRequired;
             attrWarnings = fb.warnings;
+            attributeReasonMap = {};
           }
+        }
+
+        // Varsayılan neden: model önerisi.
+        for (const a of aiItems) {
+          attributeReasonMap[String(a.attributeId)] = "AI model önerisi";
         }
 
         // Deterministik düzeltme: Boyut/Ebat gibi ölçü alanlarında metinden bire bir eşleşme
@@ -507,6 +516,9 @@ export async function POST(request: Request, { params }: Params) {
 
           // Eksik zorunlu listesi override edilenlerle güncellensin.
           missingRequired = missingRequired.filter((m) => !detByAttr.has(m.attributeId));
+          for (const d of deterministic) {
+            attributeReasonMap[String(d.attributeId)] = `Deterministik: ${d.reason}`;
+          }
           attrWarnings = [
             ...attrWarnings,
             ...deterministic.map(
@@ -544,10 +556,13 @@ export async function POST(request: Request, { params }: Params) {
           data: {
             aiReasoningSummary: summary,
             missingRequiredAttributes:
-              missingRequired.length > 0
+              missingRequired.length > 0 ||
+              attrWarnings.length > 0 ||
+              Object.keys(attributeReasonMap).length > 0
                 ? ({
                     missingRequired,
-                    warnings: attrWarnings.slice(0, 30)
+                    warnings: attrWarnings.slice(0, 30),
+                    attributeReasons: attributeReasonMap
                   } as Prisma.InputJsonValue)
                 : Prisma.DbNull
           }

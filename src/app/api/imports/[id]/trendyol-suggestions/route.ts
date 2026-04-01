@@ -9,6 +9,24 @@ import { isImportUsable } from "@/lib/importStatus";
 
 type Params = { params: { id: string } };
 
+function readAttributeReasonMap(
+  missingRequiredAttributes: unknown
+): Record<string, string> {
+  if (
+    missingRequiredAttributes == null ||
+    typeof missingRequiredAttributes !== "object"
+  ) {
+    return {};
+  }
+  const raw = (missingRequiredAttributes as Record<string, unknown>).attributeReasons;
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
 function getUserIdFromSession(session: {
   user?: { id?: string } | null;
 } | null): string | null {
@@ -93,6 +111,7 @@ export async function GET(request: Request, { params }: Params) {
     const missingRequiredCount = countMissingRequiredAttributes(
       s.missingRequiredAttributes
     );
+    const attrReasonMap = readAttributeReasonMap(s.missingRequiredAttributes);
     const conf = s.confidenceScore;
     return {
       suggestionId: s.id,
@@ -112,7 +131,13 @@ export async function GET(request: Request, { params }: Params) {
       missingRequiredCount,
       status: s.status,
       aiReasoningSummary: s.aiReasoningSummary,
-      suggestedAttributes: s.suggestedAttributes
+      suggestedAttributes: s.suggestedAttributes.map((a) => ({
+        ...a,
+        matchReason:
+          attrReasonMap[String(a.attributeId)] ??
+          attrReasonMap[String(a.id)] ??
+          null
+      }))
     };
   });
 

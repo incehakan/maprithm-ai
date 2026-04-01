@@ -14,6 +14,7 @@ type SuggestedAttr = {
   attributeValue: string | null;
   customValue: string | null;
   isRequired: boolean;
+  matchReason?: string | null;
 };
 
 type SuggestionRow = {
@@ -660,6 +661,11 @@ function ImportTrendyolSuggestionsPageContent() {
                         ? `Özel: ${a.customValue}`
                         : "—"}
                   </div>
+                  {a.matchReason && (
+                    <div className="mt-1 text-[11px] text-indigo-300/90">
+                      Neden: {a.matchReason}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
