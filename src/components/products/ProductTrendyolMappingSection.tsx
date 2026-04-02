@@ -170,6 +170,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
   const [pickedBrandName, setPickedBrandName] = useState<string | null>(null);
   const [categories, setCategories] = useState<CatOpt[]>([]);
   const [categoryAttributes, setCategoryAttributes] = useState<CatAttr[]>([]);
+  const [cargoCompanyOptions, setCargoCompanyOptions] = useState<number[]>([]);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
 
   const [trendyolBrandId, setTrendyolBrandId] = useState<number | null>(null);
@@ -179,7 +180,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
   const [barcode, setBarcode] = useState("");
   const [stockCode, setStockCode] = useState("");
   const [productMainId, setProductMainId] = useState("");
-  const [cargoCompanyId, setCargoCompanyId] = useState("");
+  const [cargoCompanyId, setCargoCompanyId] = useState<number | null>(null);
   const [dimensionalWeight, setDimensionalWeight] = useState("");
   const [currencyType, setCurrencyType] = useState("TRY");
   const [vatRate, setVatRate] = useState("");
@@ -233,7 +234,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
         setBarcode(d.barcode ?? "");
         setStockCode(d.stockCode ?? "");
         setProductMainId(d.productMainId ?? "");
-        setCargoCompanyId("");
+        setCargoCompanyId(d.cargoCompanyId ?? null);
         setDimensionalWeight(
           d.dimensionalWeight != null ? String(d.dimensionalWeight) : ""
         );
@@ -263,9 +264,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
         setBarcode(m.barcode ?? "");
         setStockCode(m.stockCode ?? "");
         setProductMainId(m.productMainId ?? "");
-        setCargoCompanyId(
-          m.cargoCompanyId != null ? String(m.cargoCompanyId) : ""
-        );
+        setCargoCompanyId(m.cargoCompanyId ?? null);
         setDimensionalWeight(
           m.dimensionalWeight != null ? String(m.dimensionalWeight) : ""
         );
@@ -296,6 +295,13 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
       );
       setCategories(data.categories ?? []);
       setCategoryAttributes(data.categoryAttributes ?? []);
+      setCargoCompanyOptions(
+        Array.isArray(data.cargoCompanyOptions)
+          ? data.cargoCompanyOptions
+              .map((x: unknown) => Number(x))
+              .filter((x: number) => Number.isFinite(x))
+          : []
+      );
       setReadiness(data.readiness ?? null);
       setEffectiveCommercials(data.effectiveCommercials ?? null);
 
@@ -375,9 +381,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
         barcode: barcode.trim() || null,
         stockCode: stockCode.trim() || null,
         productMainId: productMainId.trim() || null,
-        cargoCompanyId: cargoCompanyId.trim()
-          ? parseInt(cargoCompanyId, 10)
-          : null,
+        cargoCompanyId,
         dimensionalWeight: dimensionalWeight.trim()
           ? parseFloat(dimensionalWeight)
           : null,
@@ -1067,13 +1071,26 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
           </div>
           <div>
             <label className="label">Kargo Firma ID</label>
-            <input
-              type="number"
+            <select
               className="input"
-              value={cargoCompanyId}
-              onChange={(e) => setCargoCompanyId(e.target.value)}
-              placeholder="Trendyol kargo firma ID (yayın için zorunlu)"
-            />
+              value={cargoCompanyId ?? ""}
+              onChange={(e) =>
+                setCargoCompanyId(
+                  e.target.value === "" ? null : Number(e.target.value)
+                )
+              }
+            >
+              <option value="">— Kargo firması seçin —</option>
+              {cargoCompanyOptions.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Seçenekler mağazanızda daha önce kullanılan Trendyol kargo firma
+              ID değerlerinden gelir.
+            </p>
           </div>
           <div>
             <label className="label">Yayın Durumu</label>

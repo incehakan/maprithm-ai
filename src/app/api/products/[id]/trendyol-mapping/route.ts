@@ -63,13 +63,31 @@ export async function GET(request: Request, { params }: Params) {
   const settings = await getUserSettings({ userId: ctx.userId, storeId: ctx.storeId });
   const p = product as any;
 
+  const cargoCompanyStats = await prisma.productMarketplaceMapping.groupBy({
+    by: ["cargoCompanyId"],
+    where: {
+      storeId: ctx.storeId,
+      platform: "trendyol",
+      cargoCompanyId: { not: null }
+    },
+    _count: { cargoCompanyId: true },
+    orderBy: {
+      _count: {
+        cargoCompanyId: "desc"
+      }
+    }
+  });
+  const cargoCompanyOptions = cargoCompanyStats
+    .map((r) => r.cargoCompanyId)
+    .filter((v): v is number => v != null);
+
   const defaults = {
     trendyolBrandId: null as number | null,
     trendyolCategoryId: null as number | null,
     barcode: "" as string,
     stockCode: product.sku?.trim() ?? "",
     productMainId: "" as string,
-    cargoCompanyId: null as number | null,
+    cargoCompanyId: cargoCompanyOptions[0] ?? null,
     dimensionalWeight: settings.defaultDesi ?? 1,
     currencyType: settings.defaultCurrency || "TRY",
     vatRate: p.vatRate ?? settings.defaultVatRate ?? 20,
@@ -254,6 +272,7 @@ export async function GET(request: Request, { params }: Params) {
   return NextResponse.json({
     mapping,
     defaults,
+    cargoCompanyOptions,
     brands,
     trendyolBrandName,
     categories,
