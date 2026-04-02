@@ -6,7 +6,9 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM "StoreMembership" LIMIT 1) IS NOT TRUE THEN
-    RAISE EXCEPTION 'Phase-2 precheck failed: StoreMembership table is empty. Run seed/backfill first.';
+    -- Empty DB / shadow DB / fresh reset: allow migration chain to proceed.
+    -- If there is real data with NULL storeId, checks below will still abort safely.
+    RAISE NOTICE 'Phase-2 precheck: StoreMembership table is empty; skipping seed/backfill requirement and continuing.';
   END IF;
 
   IF EXISTS (SELECT 1 FROM "ActivityLog" WHERE "storeId" IS NULL) THEN
@@ -79,9 +81,18 @@ CREATE INDEX IF NOT EXISTS "UserSettings_userId_storeId_idx"
   ON "UserSettings"("userId", "storeId");
 
 -- FK for ProductMarketplaceAttribute.storeId
-ALTER TABLE "ProductMarketplaceAttribute"
-  ADD CONSTRAINT "ProductMarketplaceAttribute_storeId_fkey"
-  FOREIGN KEY ("storeId") REFERENCES "Store"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'ProductMarketplaceAttribute_storeId_fkey'
+  ) THEN
+    ALTER TABLE "ProductMarketplaceAttribute"
+      ADD CONSTRAINT "ProductMarketplaceAttribute_storeId_fkey"
+      FOREIGN KEY ("storeId") REFERENCES "Store"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS "ProductMarketplaceAttribute_storeId_mappingId_idx"
   ON "ProductMarketplaceAttribute"("storeId", "mappingId");
