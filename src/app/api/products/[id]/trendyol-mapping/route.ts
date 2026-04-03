@@ -14,6 +14,17 @@ import { Prisma } from "@prisma/client";
 
 type Params = { params: { id: string } };
 
+function parseConfiguredCargoCompanyIds(): number[] {
+  const raw = process.env.TRENDYOL_CARGO_COMPANY_IDS ?? "";
+  if (!raw.trim()) return [];
+  const vals = raw
+    .split(",")
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .map((v) => Math.round(v));
+  return Array.from(new Set(vals));
+}
+
 function serializeMapping(m: Record<string, unknown>) {
   return {
     id: m.id as string,
@@ -62,6 +73,10 @@ export async function GET(request: Request, { params }: Params) {
 
   const settings = await getUserSettings({ userId: ctx.userId, storeId: ctx.storeId });
   const p = product as any;
+  const storeConnection = await prisma.marketplaceConnection.findUnique({
+    where: { storeId_platform: { storeId: ctx.storeId, platform: "trendyol" } },
+    select: { defaultCargoCompanyId: true }
+  });
 
   const cargoCompanyStats = await prisma.productMarketplaceMapping.groupBy({
     by: ["cargoCompanyId"],
@@ -77,9 +92,21 @@ export async function GET(request: Request, { params }: Params) {
       }
     }
   });
-  const cargoCompanyOptions = cargoCompanyStats
+  const cargoCompanyFromMappings = cargoCompanyStats
     .map((r) => r.cargoCompanyId)
     .filter((v): v is number => v != null);
+  const configuredCargoCompanyIds = parseConfiguredCargoCompanyIds();
+  const defaultCargoFromConnection =
+    storeConnection?.defaultCargoCompanyId != null
+      ? Number(storeConnection.defaultCargoCompanyId)
+      : null;
+  const cargoCompanyOptions = Array.from(
+    new Set([
+      ...cargoCompanyFromMappings,
+      ...configuredCargoCompanyIds,
+      ...(defaultCargoFromConnection != null ? [defaultCargoFromConnection] : [])
+    ])
+  );
 
   const defaults = {
     trendyolBrandId: null as number | null,
@@ -87,7 +114,7 @@ export async function GET(request: Request, { params }: Params) {
     barcode: "" as string,
     stockCode: product.sku?.trim() ?? "",
     productMainId: "" as string,
-    cargoCompanyId: cargoCompanyOptions[0] ?? null,
+    cargoCompanyId: defaultCargoFromConnection ?? cargoCompanyOptions[0] ?? null,
     dimensionalWeight: settings.defaultDesi ?? 1,
     currencyType: settings.defaultCurrency || "TRY",
     vatRate: p.vatRate ?? settings.defaultVatRate ?? 20,

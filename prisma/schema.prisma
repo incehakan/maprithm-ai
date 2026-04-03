@@ -490,6 +490,8 @@ model MarketplaceConnection {
   returnAddressId    String?
   /// CHE / settlements API için supplierId; boşsa sellerId sayısal olarak kullanılır.
   cheSupplierId      String?
+  /// Ürün yayına gönderiminde kullanılacak varsayılan Trendyol cargoCompanyId.
+  defaultCargoCompanyId Int?
 
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

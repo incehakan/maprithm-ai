@@ -13,6 +13,7 @@ type ConnectionPayload = {
   shipmentAddressId?: string | null;
   returnAddressId?: string | null;
   cheSupplierId?: string | null;
+  defaultCargoCompanyId?: number | null;
 };
 
 function serializeConnection(row: {
@@ -28,6 +29,7 @@ function serializeConnection(row: {
   shipmentAddressId: string | null;
   returnAddressId: string | null;
   cheSupplierId?: string | null;
+  defaultCargoCompanyId?: number | null;
 }) {
   let apiKeyMasked = "—";
   let apiSecretMasked = "—";
@@ -56,6 +58,11 @@ function serializeConnection(row: {
     cheSupplierId:
       row.cheSupplierId != null && String(row.cheSupplierId).trim()
         ? String(row.cheSupplierId).trim()
+        : null,
+    defaultCargoCompanyId:
+      row.defaultCargoCompanyId != null &&
+      Number.isFinite(Number(row.defaultCargoCompanyId))
+        ? Number(row.defaultCargoCompanyId)
         : null
   };
 }
@@ -216,6 +223,15 @@ export async function POST(request: Request) {
         : cheIn === null || (typeof cheIn === "string" && !cheIn.trim())
           ? null
           : String(cheIn).trim();
+    const cargoIn = body.defaultCargoCompanyId as unknown;
+    const defaultCargoCompanyId =
+      cargoIn === undefined
+        ? undefined
+        : cargoIn === null || (typeof cargoIn === "string" && !cargoIn.trim())
+          ? null
+          : Number.isFinite(Number(cargoIn))
+            ? Math.round(Number(cargoIn))
+            : null;
 
     const row = existing
       ? await anyPrisma.marketplaceConnection.update({
@@ -229,7 +245,8 @@ export async function POST(request: Request) {
             isActive,
             ...(shipmentAddressId !== undefined && { shipmentAddressId }),
             ...(returnAddressId !== undefined && { returnAddressId }),
-            ...(cheSupplierId !== undefined && { cheSupplierId })
+            ...(cheSupplierId !== undefined && { cheSupplierId }),
+            ...(defaultCargoCompanyId !== undefined && { defaultCargoCompanyId })
           }
         })
       : await anyPrisma.marketplaceConnection.create({
@@ -245,7 +262,8 @@ export async function POST(request: Request) {
             isActive,
             ...(shipmentAddressId !== undefined && { shipmentAddressId }),
             ...(returnAddressId !== undefined && { returnAddressId }),
-            ...(cheSupplierId !== undefined && { cheSupplierId })
+            ...(cheSupplierId !== undefined && { cheSupplierId }),
+            ...(defaultCargoCompanyId !== undefined && { defaultCargoCompanyId })
           }
         });
 

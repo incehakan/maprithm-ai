@@ -3,6 +3,31 @@ import { prisma } from "@/lib/prisma";
 import { trendyolFetch } from "@/lib/trendyolFetch";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 
+type ProviderOption = { id: number; label: string };
+
+function normalizeProviderOptions(payload: unknown): ProviderOption[] {
+  const arr = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && Array.isArray((payload as any).data)
+      ? (payload as any).data
+      : [];
+  const out: ProviderOption[] = [];
+  for (const item of arr) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const idRaw = r.id ?? r.providerId ?? r.cargoCompanyId ?? r.code;
+    const idNum = Number(idRaw);
+    if (!Number.isFinite(idNum) || idNum <= 0) continue;
+    const name =
+      (typeof r.name === "string" && r.name.trim()) ||
+      (typeof r.providerName === "string" && r.providerName.trim()) ||
+      (typeof r.label === "string" && r.label.trim()) ||
+      `Provider ${Math.round(idNum)}`;
+    out.push({ id: Math.round(idNum), label: `${name} (${Math.round(idNum)})` });
+  }
+  return Array.from(new Map(out.map((x) => [x.id, x])).values());
+}
+
 /**
  * GET /integration/product/sellers/{sellerId}/providers
  */
@@ -47,5 +72,5 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ data: result.data });
+  return NextResponse.json({ data: result.data, options: normalizeProviderOptions(result.data) });
 }

@@ -23,9 +23,11 @@ type ConnectionView = {
   shipmentAddressId: string | null;
   returnAddressId: string | null;
   cheSupplierId: string | null;
+  defaultCargoCompanyId: number | null;
 };
 
 type AddressOption = { id: string; label: string };
+type CargoOption = { id: number; label: string };
 
 function ProductProvidersSnippet() {
   const [loading, setLoading] = useState(false);
@@ -90,10 +92,13 @@ function TrendyolSettingsPageContent() {
   const [globalStatus, setGlobalStatus] = useState<GlobalReferenceStatus | null>(null);
 
   const [addressOptions, setAddressOptions] = useState<AddressOption[]>([]);
+  const [cargoOptions, setCargoOptions] = useState<CargoOption[]>([]);
   const [fetchingAddresses, setFetchingAddresses] = useState(false);
+  const [fetchingCargoOptions, setFetchingCargoOptions] = useState(false);
   const [shipmentAddressId, setShipmentAddressId] = useState("");
   const [returnAddressId, setReturnAddressId] = useState("");
   const [cheSupplierId, setCheSupplierId] = useState("");
+  const [defaultCargoCompanyId, setDefaultCargoCompanyId] = useState<number | null>(null);
 
   const [sellerId, setSellerId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -132,6 +137,7 @@ function TrendyolSettingsPageContent() {
           );
           setReturnAddressId(connData.connection.returnAddressId?.trim() || "");
           setCheSupplierId(connData.connection.cheSupplierId?.trim() || "");
+          setDefaultCargoCompanyId(connData.connection.defaultCargoCompanyId ?? null);
         }
         setGlobalStatus(statusData?.status ?? null);
       } catch (e) {
@@ -142,6 +148,48 @@ function TrendyolSettingsPageContent() {
     }
     load();
   }, []);
+
+  async function handleFetchCargoProviders() {
+    setFetchingCargoOptions(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/integrations/trendyol/product-providers");
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Kargo firmaları alınamadı.");
+      }
+      const opts: CargoOption[] = Array.isArray(data.options)
+        ? data.options
+            .map((x: any) => ({
+              id: Number(x?.id),
+              label:
+                typeof x?.label === "string" && x.label.trim()
+                  ? x.label.trim()
+                  : String(x?.id ?? "")
+            }))
+            .filter((x: CargoOption) => Number.isFinite(x.id) && x.id > 0)
+        : [];
+      setCargoOptions(opts);
+      if (opts.length === 0) {
+        setMessage({
+          type: "warning",
+          text: "Trendyol ürün sağlayıcı listesinde seçim yapılacak kargo ID bulunamadı."
+        });
+      } else {
+        setMessage({
+          type: "success",
+          text: `${opts.length} kargo seçeneği alındı. Varsayılanı seçip Kaydet'e basın.`
+        });
+      }
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Kargo firmaları alınamadı."
+      });
+    } finally {
+      setFetchingCargoOptions(false);
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -159,7 +207,8 @@ function TrendyolSettingsPageContent() {
           isActive,
           shipmentAddressId: shipmentAddressId.trim() || null,
           returnAddressId: returnAddressId.trim() || null,
-          cheSupplierId: cheSupplierId.trim() || null
+          cheSupplierId: cheSupplierId.trim() || null,
+          defaultCargoCompanyId
         })
       });
       const data = await res.json();
@@ -173,6 +222,7 @@ function TrendyolSettingsPageContent() {
         );
         setReturnAddressId(data.connection.returnAddressId?.trim() || "");
         setCheSupplierId(data.connection.cheSupplierId?.trim() || "");
+        setDefaultCargoCompanyId(data.connection.defaultCargoCompanyId ?? null);
       }
       setApiKey("");
       setApiSecret("");
@@ -516,6 +566,45 @@ function TrendyolSettingsPageContent() {
                 </option>
               ))}
             </Select>
+          </div>
+        </div>
+        <div className="border-t border-slate-700 pt-4 space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleFetchCargoProviders}
+              disabled={fetchingCargoOptions || !connection}
+              className="btn-secondary disabled:opacity-50"
+              title={
+                !connection
+                  ? "Önce API bilgilerini kaydedin"
+                  : "Trendyol ürün sağlayıcı listesinden kargo ID'leri çek"
+              }
+            >
+              {fetchingCargoOptions ? "Yükleniyor..." : "Kargo firmalarını getir"}
+            </button>
+          </div>
+          <div>
+            <label className="label">Varsayılan Kargo Firma ID</label>
+            <Select
+              value={defaultCargoCompanyId == null ? "" : String(defaultCargoCompanyId)}
+              onChange={(e) =>
+                setDefaultCargoCompanyId(
+                  e.target.value === "" ? null : Number(e.target.value)
+                )
+              }
+            >
+              <option value="">Seçin…</option>
+              {cargoOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-xs text-slate-500">
+              Bu değer ürün eşleştirme ekranına otomatik gelir; ürün bazında
+              isterseniz değiştirebilirsiniz.
+            </p>
           </div>
         </div>
         <p className="text-xs text-slate-500">
