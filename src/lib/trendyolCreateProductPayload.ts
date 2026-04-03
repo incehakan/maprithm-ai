@@ -179,7 +179,17 @@ export function buildTrendyolCreateProductItem(
     throw new Error("Yayın için en az 1 geçerli görsel URL gerekir.");
   }
 
-  const cargoCompanyId = Math.round(mapping.cargoCompanyId!);
+  const cargoRaw = mapping.cargoCompanyId;
+  if (cargoRaw == null) {
+    throw new Error(
+      "cargoCompanyId zorunlu (Trendyol kargo firması seçin veya mağaza varsayılanını ayarlayın)."
+    );
+  }
+  const cargoNum = Number(cargoRaw);
+  if (!Number.isFinite(cargoNum) || cargoNum <= 0) {
+    throw new Error("cargoCompanyId pozitif bir sayı olmalı.");
+  }
+  const cargoCompanyId = Math.round(cargoNum);
 
   return {
     barcode,

@@ -72,8 +72,28 @@ model Store {
   trendyolReturnReasons       TrendyolReturnReason[]
   trendyolFinanceSyncRuns     TrendyolFinanceSyncRun[]
   trendyolFinanceLines        TrendyolFinanceLine[]
+  /// Trendyol ürün yayını için mağaza bazlı senkronize kargo firması listesi (cargoCompanyId).
+  storeTrendyolCargoCompanies StoreTrendyolCargoCompany[]
 
   @@index([status])
+}
+
+/// Mağaza başına Trendyol kargo firması referansı (API sync → DB, UI tek kaynak).
+model StoreTrendyolCargoCompany {
+  id               String    @id @default(uuid()) @db.Uuid
+  storeId          String    @db.Uuid
+  store            Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform         String    @default("trendyol")
+  cargoCompanyId   Int
+  name             String
+  rawData          Json?
+  isActive         Boolean   @default(true)
+  lastSyncedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([storeId, platform, cargoCompanyId])
+  @@index([storeId, platform, isActive])
 }
 
 /// Global kargo sağlayıcı referansı (store bağımsız; Trendyol providerCode listesi).

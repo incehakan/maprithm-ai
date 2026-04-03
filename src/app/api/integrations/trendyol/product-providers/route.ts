@@ -1,17 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
-import { getTrendyolCargoSelectOptions } from "@/lib/trendyolCargoSelectOptions";
+import { getCargoCompaniesForStore } from "@/lib/trendyol/getCargoCompaniesForStore";
 
 /**
- * GET — kargo seçenekleri (MP hazır liste + Trendyol API + env + referans tablo).
+ * GET — kargo seçenekleri (önce DB; boşsa sync + yedek env/preset).
  */
 export async function GET() {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
   try {
     ctx = await requireActiveStore();
-  } catch (e: any) {
-    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
+  } catch (e: unknown) {
+    const msg =
+      e && typeof e === "object" && (e as { message?: string }).message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
     return NextResponse.json({ error: msg }, { status: 401 });
   }
 
@@ -32,21 +35,24 @@ export async function GET() {
     );
   }
 
-  const result = await getTrendyolCargoSelectOptions({
+  const result = await getCargoCompaniesForStore({
     userId: ctx.userId,
     storeId: ctx.storeId
   });
 
-  const apiReachable =
-    result.primary.ok || result.carrierFb.items.length > 0;
+  const apiReachable = result.source === "db";
 
   return NextResponse.json({
-    data: result.data,
+    data: {
+      source: result.source,
+      syncPerformed: result.syncPerformed,
+      syncUpserted: result.syncUpserted
+    },
     options: result.options,
     source: result.source,
     apiReachable,
-    carrierAttempts: result.carrierFb.attempts,
-    primaryOk: result.primary.ok,
-    primaryStatus: result.primary.status
+    carrierAttempts: result.attempts ?? [],
+    primaryOk: result.primaryOk ?? false,
+    primaryStatus: result.primaryStatus ?? 0
   });
 }

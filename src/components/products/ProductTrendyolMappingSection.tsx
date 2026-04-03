@@ -173,6 +173,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
   const [categories, setCategories] = useState<CatOpt[]>([]);
   const [categoryAttributes, setCategoryAttributes] = useState<CatAttr[]>([]);
   const [cargoCompanyOptions, setCargoCompanyOptions] = useState<CargoCompanyOpt[]>([]);
+  const [cargoListSyncing, setCargoListSyncing] = useState(false);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
 
   const [trendyolBrandId, setTrendyolBrandId] = useState<number | null>(null);
@@ -339,6 +340,27 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
     },
     [productId]
   );
+
+  const refreshCargoListFromTrendyol = useCallback(async () => {
+    setCargoListSyncing(true);
+    try {
+      const syncRes = await fetch(
+        "/api/integrations/trendyol/cargo-companies/sync",
+        { method: "POST" }
+      );
+      if (!syncRes.ok) {
+        const err = await syncRes.json().catch(() => ({}));
+        throw new Error(
+          typeof err?.error === "string" ? err.error : "Senkronizasyon başarısız."
+        );
+      }
+      await load(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Kargo listesi güncellenemedi.");
+    } finally {
+      setCargoListSyncing(false);
+    }
+  }, [load]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1090,25 +1112,37 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
           </div>
           <div>
             <label className="label">Kargo firması</label>
-            <select
-              className="input"
-              value={cargoCompanyId ?? ""}
-              onChange={(e) =>
-                setCargoCompanyId(
-                  e.target.value === "" ? null : Number(e.target.value)
-                )
-              }
-            >
-              <option value="">— Kargo firması seçin —</option>
-              {cargoCompanyOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+              <select
+                className="input min-w-0 flex-1"
+                value={cargoCompanyId ?? ""}
+                onChange={(e) =>
+                  setCargoCompanyId(
+                    e.target.value === "" ? null : Number(e.target.value)
+                  )
+                }
+              >
+                <option value="">— Kargo firması seçin —</option>
+                {cargoCompanyOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="btn-secondary shrink-0 text-xs whitespace-nowrap"
+                disabled={cargoListSyncing}
+                onClick={() => void refreshCargoListFromTrendyol()}
+                title="Trendyol API ile mağaza kargo listesini senkronize eder"
+              >
+                {cargoListSyncing ? "Senkron…" : "Listeyi yenile"}
+              </button>
+            </div>
             <p className="mt-1 text-xs text-slate-500">
-              Trendyol Marketplace yaygın kargo listesi ve mağaza/API verisiyle
-              doldurulur; anlaşmalı kargo panelden teyit edin.
+              Seçenekler mağaza veritabanındaki senkronize listeden gelir (Ayarlar →
+              Trendyol ile aynı kaynak). Gerekirse önce yenileyin; anlaşmalı kargoyu
+              panelden teyit edin.
             </p>
           </div>
           <div>

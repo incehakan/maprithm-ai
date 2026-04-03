@@ -172,18 +172,19 @@ function TrendyolSettingsPageContent() {
         : [];
       setCargoOptions(list);
       if (!opts?.silent) {
-        const apiOk = data.apiReachable === true;
+        const src = typeof data.source === "string" ? data.source : "";
+        const fromDb = src === "db";
         if (list.length === 0) {
           setMessage({
             type: "warning",
-            text: "Kargo listesi boş."
+            text: "Kargo listesi boş. Senkronize et ile Trendyol API’den çekmeyi deneyin."
           });
         } else {
           setMessage({
             type: "success",
-            text: apiOk
-              ? `${list.length} kargo seçeneği yüklendi. Varsayılanı seçip Kaydet'e basın.`
-              : `${list.length} kargo seçeneği (hazır liste + yedekler). API uçları bazen 404 verebilir; liste yine kullanılabilir.`
+            text: fromDb
+              ? `${list.length} kargo seçeneği (veritabanı). Varsayılanı seçip Kaydet'e basın.`
+              : `${list.length} kargo seçeneği (yedek: ${src}). API erişilemediğinde env / hazır liste kullanılır.`
           });
         }
       }
@@ -198,6 +199,43 @@ function TrendyolSettingsPageContent() {
       setFetchingCargoOptions(false);
     }
   }, []);
+
+  const syncCargoFromTrendyol = useCallback(async () => {
+    setFetchingCargoOptions(true);
+    setMessage(null);
+    try {
+      const syncRes = await fetch(
+        "/api/integrations/trendyol/cargo-companies/sync",
+        { method: "POST" }
+      );
+      const syncData = await syncRes.json().catch(() => ({}));
+      if (!syncRes.ok) {
+        throw new Error(
+          typeof syncData?.error === "string"
+            ? syncData.error
+            : "Senkronizasyon başarısız."
+        );
+      }
+      await loadCargoOptions({ silent: true });
+      const n =
+        typeof syncData?.upserted === "number" ? syncData.upserted : null;
+      setMessage({
+        type: "success",
+        text:
+          n != null
+            ? `Senkronizasyon tamamlandı (${n} kayıt güncellendi veya eklendi).`
+            : "Senkronizasyon tamamlandı."
+      });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text:
+          err instanceof Error ? err.message : "Senkronizasyon sırasında hata oluştu."
+      });
+    } finally {
+      setFetchingCargoOptions(false);
+    }
+  }, [loadCargoOptions]);
 
   const filteredCargoOptions = useMemo(() => {
     const q = cargoSearch.trim().toLowerCase();
@@ -595,16 +633,25 @@ function TrendyolSettingsPageContent() {
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => loadCargoOptions()}
+              onClick={() => syncCargoFromTrendyol()}
               disabled={fetchingCargoOptions || !connection}
               className="btn-secondary disabled:opacity-50"
               title={
                 !connection
                   ? "Önce API bilgilerini kaydedin"
-                  : "Trendyol ürün sağlayıcı listesinden kargo ID'leri çek"
+                  : "Trendyol API’den kargo listesini çekip veritabanına yazar"
               }
             >
-              {fetchingCargoOptions ? "Yükleniyor..." : "Kargo firmalarını getir"}
+              {fetchingCargoOptions ? "Senkronize ediliyor…" : "Kargo listesini senkronize et"}
+            </button>
+            <button
+              type="button"
+              onClick={() => loadCargoOptions()}
+              disabled={fetchingCargoOptions || !connection}
+              className="btn-secondary text-xs disabled:opacity-50"
+              title="Kayıtlı liste ve yedekleri yeniden yükle (GET)"
+            >
+              {fetchingCargoOptions ? "…" : "Listeyi yenile"}
             </button>
           </div>
           <div>
@@ -633,9 +680,10 @@ function TrendyolSettingsPageContent() {
               ))}
             </Select>
             <p className="mt-1 text-xs text-slate-500">
-              Liste Trendyol Marketplace için yaygın kargo ID’lerini ve (varsa)
-              API yanıtlarını birleştirir. Bu değer ürün eşleştirmede varsayılan
-              olur; ürün bazında değiştirebilirsiniz.
+              Liste önce veritabanındaki senkronize kayıtlardan gelir; boşsa
+              senkronizasyon Trendyol API’yi dener, olmazsa env / hazır yedekler
+              kullanılır. Varsayılan ürün eşleştirmede kullanılır; ürün bazında
+              değiştirebilirsiniz.
             </p>
           </div>
         </div>

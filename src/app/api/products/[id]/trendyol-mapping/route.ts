@@ -10,10 +10,7 @@ import {
 import { normalizeImageUrls } from "@/lib/productImages";
 import { resolveTrendyolCommercials } from "@/lib/trendyolCreateProductPayload";
 import { requireActiveStore } from "@/lib/requireActiveStore";
-import {
-  getTrendyolCargoSelectOptions,
-  mergeExtraCargoIds
-} from "@/lib/trendyolCargoSelectOptions";
+import { getCargoCompaniesForStore } from "@/lib/trendyol/getCargoCompaniesForStore";
 import { Prisma } from "@prisma/client";
 
 type Params = { params: { id: string } };
@@ -94,14 +91,12 @@ export async function GET(request: Request, { params }: Params) {
       ? Number(storeConnection.defaultCargoCompanyId)
       : null;
 
-  const cargoSelectBase = await getTrendyolCargoSelectOptions({
+  const cargoSelectBase = await getCargoCompaniesForStore({
     userId: ctx.userId,
-    storeId: ctx.storeId
+    storeId: ctx.storeId,
+    extraCargoCompanyIds: cargoCompanyFromMappings
   });
-  const cargoCompanyOptions = mergeExtraCargoIds(
-    cargoSelectBase.options,
-    cargoCompanyFromMappings
-  );
+  const cargoCompanyOptions = cargoSelectBase.options;
 
   const defaults = {
     trendyolBrandId: null as number | null,
