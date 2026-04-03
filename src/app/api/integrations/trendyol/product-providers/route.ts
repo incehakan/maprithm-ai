@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { trendyolFetch } from "@/lib/trendyolFetch";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import {
+  fetchTrendyolCarrierCompaniesForStore,
+  type NormalizedCarrierCompany
+} from "@/lib/trendyolCarrier";
 
 type ProviderOption = { id: number; label: string };
 
@@ -28,8 +32,39 @@ function normalizeProviderOptions(payload: unknown): ProviderOption[] {
   return Array.from(new Map(out.map((x) => [x.id, x])).values());
 }
 
+function numericIdFromCarrierRaw(c: NormalizedCarrierCompany): number | null {
+  const raw = c.rawData;
+  if (raw != null && typeof raw === "object" && !Array.isArray(raw)) {
+    const r = raw as Record<string, unknown>;
+    for (const k of ["cargoCompanyId", "id", "providerId", "companyId"]) {
+      const v = r[k];
+      if (v != null && Number.isFinite(Number(v))) {
+        const n = Math.round(Number(v));
+        if (n > 0) return n;
+      }
+    }
+  }
+  if (/^\d+$/.test(c.providerCode)) {
+    return parseInt(c.providerCode, 10);
+  }
+  return null;
+}
+
+function carriersToProviderOptions(items: NormalizedCarrierCompany[]): ProviderOption[] {
+  const out: ProviderOption[] = [];
+  for (const it of items) {
+    const id = numericIdFromCarrierRaw(it);
+    if (id == null) continue;
+    out.push({
+      id,
+      label: `${it.providerName} (${id})`
+    });
+  }
+  return Array.from(new Map(out.map((x) => [x.id, x])).values());
+}
+
 /**
- * GET /integration/product/sellers/{sellerId}/providers
+ * GET — önce ürün sağlayıcı listesi; 404/boşsa sipariş/kargo uçları (mağaza kimliğiyle).
  */
 export async function GET() {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -62,15 +97,40 @@ export async function GET() {
     return NextResponse.json({ error: "Satıcı ID tanımlı değil." }, { status: 400 });
   }
 
-  const path = `/integration/product/sellers/${encodeURIComponent(sellerId)}/providers`;
-  const result = await trendyolFetch<unknown>(ctx.userId, ctx.storeId, path);
+  const productPath = `/integration/product/sellers/${encodeURIComponent(sellerId)}/providers`;
+  const primary = await trendyolFetch<unknown>(ctx.userId, ctx.storeId, productPath);
 
-  if (!result.ok) {
+  let data: unknown = primary.ok ? primary.data : null;
+  let options = primary.ok ? normalizeProviderOptions(primary.data) : [];
+  let source: "product-providers" | "order-cargo" = "product-providers";
+
+  if (options.length === 0) {
+    const fb = await fetchTrendyolCarrierCompaniesForStore(ctx.userId, ctx.storeId);
+    const fromOrder = carriersToProviderOptions(fb.items);
+    if (fromOrder.length > 0) {
+      data = fb.items;
+      options = fromOrder;
+      source = "order-cargo";
+    }
+  }
+
+  if (options.length === 0) {
+    const primaryMsg = primary.ok
+      ? "Ürün sağlayıcı yanıtı boş veya sayısal ID içermiyor."
+      : primary.message || "Ürün sağlayıcı listesi alınamadı.";
     return NextResponse.json(
-      { error: result.message || "Sağlayıcı listesi alınamadı." },
-      { status: result.status >= 400 ? result.status : 502 }
+      {
+        error: primaryMsg,
+        primaryOk: primary.ok,
+        primaryStatus: primary.status,
+        hint:
+          "Bazı hesaplarda /integration/product/sellers/{id}/providers 404 döner; " +
+          "kargo listesi /integration/order/* uçlarından denendi. Hâlâ boşsa Seller ID ve " +
+          "Trendyol panelinde anlaşmalı kargo tanımını kontrol edin. Geçici çözüm: .env içinde TRENDYOL_CARGO_COMPANY_IDS."
+      },
+      { status: 502 }
     );
   }
 
-  return NextResponse.json({ data: result.data, options: normalizeProviderOptions(result.data) });
+  return NextResponse.json({ data, options, source });
 }

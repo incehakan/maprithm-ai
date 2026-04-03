@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { trendyolFetch } from "@/lib/trendyolFetch";
 import { trendyolSystemFetch } from "@/lib/trendyolSystemFetch";
 import { getTrendyolStorefrontCode } from "@/lib/trendyolShipmentPackages";
 import { resolveCargoProviderDisplay } from "@/lib/trendyolTracking";
@@ -113,6 +114,43 @@ export async function fetchTrendyolCarrierCompanies(): Promise<{
     }
   }
   return { ok: true, items: [], source: "empty", message: "API listesi boş veya endpoint bulunamadı." };
+}
+
+/**
+ * Mağaza Trendyol kimlikleriyle kargo sağlayıcı listesini dener.
+ * Ürün sağlayıcı uç noktası 404 döndüğünde yedek olarak kullanılır.
+ */
+export async function fetchTrendyolCarrierCompaniesForStore(
+  userId: string,
+  storeId: string
+): Promise<{
+  ok: true;
+  items: NormalizedCarrierCompany[];
+  source: "api" | "empty";
+  message?: string;
+}> {
+  const sf = getTrendyolStorefrontCode();
+  const paths = [
+    "/integration/order/cargo-providers",
+    "/integration/order/providers",
+    "/integration/order/cargoCompanies"
+  ];
+  for (const path of paths) {
+    const res = await trendyolFetch<unknown>(userId, storeId, path, {
+      extraHeaders: { storeFrontCode: sf }
+    });
+    if (!res.ok) continue;
+    const items = parseCarrierListPayload(res.data);
+    if (items.length > 0) {
+      return { ok: true, items, source: "api" };
+    }
+  }
+  return {
+    ok: true,
+    items: [],
+    source: "empty",
+    message: "Kargo endpoint yanıt vermedi veya liste boş."
+  };
 }
 
 export function resolveCarrierDisplayName(
