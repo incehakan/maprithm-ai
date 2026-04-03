@@ -63,8 +63,97 @@ function carriersToProviderOptions(items: NormalizedCarrierCompany[]): ProviderO
   return Array.from(new Map(out.map((x) => [x.id, x])).values());
 }
 
+function extractNumericCargoIdDeep(v: unknown, depth = 0): number | null {
+  if (depth > 8) return null;
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v) && v > 0 && v === Math.round(v)) {
+    return Math.round(v);
+  }
+  if (typeof v === "string" && /^\d+$/.test(v.trim())) {
+    const n = parseInt(v.trim(), 10);
+    return n > 0 ? n : null;
+  }
+  if (typeof v === "object" && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    for (const k of ["cargoCompanyId", "cargoCompanyID", "id", "providerId"]) {
+      const hit = extractNumericCargoIdDeep(o[k], depth + 1);
+      if (hit != null) return hit;
+    }
+    for (const val of Object.values(o)) {
+      const hit = extractNumericCargoIdDeep(val, depth + 1);
+      if (hit != null) return hit;
+    }
+  }
+  if (Array.isArray(v)) {
+    for (const el of v) {
+      const hit = extractNumericCargoIdDeep(el, depth + 1);
+      if (hit != null) return hit;
+    }
+  }
+  return null;
+}
+
+function optionsFromEnv(): ProviderOption[] {
+  const raw = process.env.TRENDYOL_CARGO_COMPANY_IDS ?? "";
+  if (!raw.trim()) return [];
+  const ids = raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .map((n) => Math.round(n));
+  const uniq = Array.from(new Set(ids));
+  return uniq.map((id) => ({
+    id,
+    label: `Sunucu varsayılanı (env) (${id})`
+  }));
+}
+
+async function optionsFromCarrierReferenceTable(): Promise<ProviderOption[]> {
+  const rows = await prisma.marketplaceCarrierReference.findMany({
+    where: { platform: "trendyol", isActive: true },
+    select: { providerName: true, rawData: true }
+  });
+  const out: ProviderOption[] = [];
+  for (const r of rows) {
+    const id = extractNumericCargoIdDeep(r.rawData);
+    if (id == null) continue;
+    const name = r.providerName?.trim() || `Kargo ${id}`;
+    out.push({ id, label: `${name} (${id})` });
+  }
+  return Array.from(new Map(out.map((x) => [x.id, x])).values());
+}
+
+function mergeOptions(...lists: ProviderOption[][]): ProviderOption[] {
+  const m = new Map<number, ProviderOption>();
+  for (const list of lists) {
+    for (const o of list) {
+      if (!m.has(o.id)) m.set(o.id, o);
+    }
+  }
+  return Array.from(m.values()).sort((a, b) => a.id - b.id);
+}
+
+function resolveSource(
+  hasPrimary: boolean,
+  hasOrderCargo: boolean,
+  hasEnv: boolean,
+  hasRef: boolean
+): "product-providers" | "order-cargo" | "env" | "reference-db" | "merged" {
+  const n =
+    (hasPrimary ? 1 : 0) +
+    (hasOrderCargo ? 1 : 0) +
+    (hasEnv ? 1 : 0) +
+    (hasRef ? 1 : 0);
+  if (n > 1) return "merged";
+  if (hasPrimary) return "product-providers";
+  if (hasOrderCargo) return "order-cargo";
+  if (hasEnv) return "env";
+  if (hasRef) return "reference-db";
+  return "merged";
+}
+
 /**
- * GET — önce ürün sağlayıcı listesi; 404/boşsa sipariş/kargo uçları (mağaza kimliğiyle).
+ * GET — ürün sağlayıcı listesi; 404/boşsa sipariş/kargo uçları, env ve referans tablo.
  */
 export async function GET() {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -100,19 +189,33 @@ export async function GET() {
   const productPath = `/integration/product/sellers/${encodeURIComponent(sellerId)}/providers`;
   const primary = await trendyolFetch<unknown>(ctx.userId, ctx.storeId, productPath);
 
-  let data: unknown = primary.ok ? primary.data : null;
-  let options = primary.ok ? normalizeProviderOptions(primary.data) : [];
-  let source: "product-providers" | "order-cargo" = "product-providers";
+  const primaryData = primary.ok ? primary.data : null;
+  const primaryOpts = primaryData != null ? normalizeProviderOptions(primaryData) : [];
+  const carrierFb = await fetchTrendyolCarrierCompaniesForStore(
+    ctx.userId,
+    ctx.storeId,
+    sellerId
+  );
+  const orderOpts =
+    primaryOpts.length === 0 ? carriersToProviderOptions(carrierFb.items) : [];
 
-  if (options.length === 0) {
-    const fb = await fetchTrendyolCarrierCompaniesForStore(ctx.userId, ctx.storeId);
-    const fromOrder = carriersToProviderOptions(fb.items);
-    if (fromOrder.length > 0) {
-      data = fb.items;
-      options = fromOrder;
-      source = "order-cargo";
-    }
-  }
+  const envOpts = optionsFromEnv();
+  const refOpts = await optionsFromCarrierReferenceTable();
+
+  const hasPrimary = primaryOpts.length > 0;
+  const hasOrder = orderOpts.length > 0;
+  const hasEnv = envOpts.length > 0;
+  const hasRef = refOpts.length > 0;
+
+  const options = mergeOptions(primaryOpts, orderOpts, envOpts, refOpts);
+
+  let data: unknown = null;
+  if (hasPrimary && primary.ok) data = primary.data;
+  else if (hasOrder) data = carrierFb.items;
+  else if (hasEnv) data = { env: "TRENDYOL_CARGO_COMPANY_IDS" };
+  else if (hasRef) data = { reference: "marketplaceCarrierReference" };
+
+  const source = resolveSource(hasPrimary, hasOrder, hasEnv, hasRef);
 
   if (options.length === 0) {
     const primaryMsg = primary.ok
@@ -123,10 +226,11 @@ export async function GET() {
         error: primaryMsg,
         primaryOk: primary.ok,
         primaryStatus: primary.status,
+        carrierAttempts: carrierFb.attempts,
         hint:
-          "Bazı hesaplarda /integration/product/sellers/{id}/providers 404 döner; " +
-          "kargo listesi /integration/order/* uçlarından denendi. Hâlâ boşsa Seller ID ve " +
-          "Trendyol panelinde anlaşmalı kargo tanımını kontrol edin. Geçici çözüm: .env içinde TRENDYOL_CARGO_COMPANY_IDS."
+          "Trendyol API sayısal cargoCompanyId döndürmediyse sunucu .env içine " +
+          "TRENDYOL_CARGO_COMPANY_IDS=10,11 ekleyin (paneldeki geçerli ID'ler). " +
+          "carrierAttempts ile hangi uçların hangi HTTP kodunu verdiğini görebilirsiniz."
       },
       { status: 502 }
     );

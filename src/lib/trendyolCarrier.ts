@@ -120,36 +120,59 @@ export async function fetchTrendyolCarrierCompanies(): Promise<{
  * Mağaza Trendyol kimlikleriyle kargo sağlayıcı listesini dener.
  * Ürün sağlayıcı uç noktası 404 döndüğünde yedek olarak kullanılır.
  */
+export type TrendyolCarrierFetchAttempt = {
+  path: string;
+  ok: boolean;
+  status: number;
+  message?: string;
+};
+
+/**
+ * Mağaza kimliğiyle kargo listesi — önce satıcıya özel uçlar, sonra genel order uçları.
+ */
 export async function fetchTrendyolCarrierCompaniesForStore(
   userId: string,
-  storeId: string
+  storeId: string,
+  sellerId: string
 ): Promise<{
   ok: true;
   items: NormalizedCarrierCompany[];
   source: "api" | "empty";
   message?: string;
+  attempts: TrendyolCarrierFetchAttempt[];
 }> {
   const sf = getTrendyolStorefrontCode();
+  const sid = String(sellerId).trim();
   const paths = [
+    `/integration/order/sellers/${encodeURIComponent(sid)}/cargo-providers`,
+    `/integration/product/sellers/${encodeURIComponent(sid)}/cargo-providers`,
     "/integration/order/cargo-providers",
     "/integration/order/providers",
     "/integration/order/cargoCompanies"
   ];
+  const attempts: TrendyolCarrierFetchAttempt[] = [];
   for (const path of paths) {
     const res = await trendyolFetch<unknown>(userId, storeId, path, {
       extraHeaders: { storeFrontCode: sf }
     });
+    attempts.push({
+      path,
+      ok: res.ok,
+      status: res.status,
+      message: res.ok ? undefined : res.message
+    });
     if (!res.ok) continue;
     const items = parseCarrierListPayload(res.data);
     if (items.length > 0) {
-      return { ok: true, items, source: "api" };
+      return { ok: true, items, source: "api", attempts };
     }
   }
   return {
     ok: true,
     items: [],
     source: "empty",
-    message: "Kargo endpoint yanıt vermedi veya liste boş."
+    message: "Kargo endpoint yanıt vermedi veya liste boş.",
+    attempts
   };
 }
 
