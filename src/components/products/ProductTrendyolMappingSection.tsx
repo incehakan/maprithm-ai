@@ -52,6 +52,12 @@ type MappingPayload = {
 };
 
 type Readiness = { ready: boolean; missing: string[] };
+
+type PrePublishValidation = {
+  isPublishable: boolean;
+  errors: Array<{ code: string; message: string; field?: string }>;
+  warnings: Array<{ code: string; message: string }>;
+};
 type EffectiveCommercials = {
   salePrice: number;
   listPrice: number;
@@ -175,6 +181,10 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
   const [cargoCompanyOptions, setCargoCompanyOptions] = useState<CargoCompanyOpt[]>([]);
   const [cargoListSyncing, setCargoListSyncing] = useState(false);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [prePublishResult, setPrePublishResult] = useState<PrePublishValidation | null>(
+    null
+  );
+  const [prePublishLoading, setPrePublishLoading] = useState(false);
 
   const [trendyolBrandId, setTrendyolBrandId] = useState<number | null>(null);
   const [trendyolCategoryId, setTrendyolCategoryId] = useState<number | null>(
@@ -323,6 +333,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
           : []
       );
       setReadiness(data.readiness ?? null);
+      setPrePublishResult(null);
       setEffectiveCommercials(data.effectiveCommercials ?? null);
 
       const attrsFromApi: CatAttr[] = data.categoryAttributes ?? [];
@@ -457,6 +468,32 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
       setError(e instanceof Error ? e.message : "Kayıt hatası");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handlePrePublishValidation() {
+    setPrePublishLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/products/${productId}/validate-publish`, {
+        method: "POST"
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data?.error === "string" ? data.error : "Doğrulama başarısız."
+        );
+      }
+      setPrePublishResult({
+        isPublishable: Boolean(data.isPublishable),
+        errors: Array.isArray(data.errors) ? data.errors : [],
+        warnings: Array.isArray(data.warnings) ? data.warnings : []
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Doğrulama isteği başarısız.");
+      setPrePublishResult(null);
+    } finally {
+      setPrePublishLoading(false);
     }
   }
 
@@ -676,6 +713,12 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
     return hasBarcode && (statusOk || wasPreviouslyPublished);
   }, [publishStatus, barcode, mappingPublishedAt]);
 
+  /** Sunucu doğrulaması varsa onu; yoksa GET’ten gelen readiness kullanılır. */
+  const publishGateReady = useMemo(
+    () => prePublishResult?.isPublishable ?? readiness?.ready ?? false,
+    [prePublishResult, readiness?.ready]
+  );
+
   const canTrendyolContentPut = useMemo(() => {
     const status = (publishStatus || "").toLowerCase();
     const qty = Number(quantityInputValue);
@@ -684,9 +727,9 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
       Boolean((barcode || "").trim()) &&
       Number.isFinite(qty) &&
       qty > 0 &&
-      Boolean(readiness?.ready)
+      Boolean(publishGateReady)
     );
-  }, [publishStatus, barcode, quantityInputValue, readiness?.ready]);
+  }, [publishStatus, barcode, quantityInputValue, publishGateReady]);
 
   const canTrendyolPlatformDelete = useMemo(() => {
     const status = (publishStatus || "").toLowerCase();
@@ -856,12 +899,12 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
               <button
                 type="button"
                 onClick={handleTrendyolPublish}
-                disabled={publishing || !readiness?.ready}
+                disabled={publishing || !publishGateReady}
                 hidden={publishStatus === "archived"}
                 className="btn-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
                 title={
-                  !readiness?.ready
-                    ? "Önce yayına hazırlık kontrolündeki eksikleri tamamlayın"
+                  !publishGateReady
+                    ? "Önce Kontrol Et ile doğrulayın veya eksikleri tamamlayın"
                     : undefined
                 }
               >
@@ -1343,31 +1386,84 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
         </button>
       </div>
 
-      <div className="card space-y-3">
-        <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
-          Yayına Hazırlık Kontrolü
-        </h2>
-        {readiness ? (
-          <>
-            <div
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                readiness.ready
-                  ? "bg-emerald-900/50 text-emerald-300"
-                  : "bg-amber-900/50 text-amber-200"
-              }`}
-            >
-              {readiness.ready ? "Yayına hazır görünüyor" : "Eksikler var"}
-            </div>
-            {readiness.missing.length > 0 && (
-              <ul className="list-inside list-disc space-y-1 text-sm text-slate-300">
-                {readiness.missing.map((m, i) => (
-                  <li key={i}>{m}</li>
-                ))}
-              </ul>
+      <div className="card space-y-4">
+        <div className="flex flex-col gap-2 border-b border-slate-700 pb-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-sm font-semibold text-slate-100">
+            Yayınlanabilirlik Kontrolü
+          </h2>
+          <button
+            type="button"
+            onClick={() => void handlePrePublishValidation()}
+            disabled={prePublishLoading}
+            className="btn-secondary inline-flex shrink-0 items-center justify-center text-sm disabled:opacity-50"
+          >
+            {prePublishLoading ? "Kontrol ediliyor…" : "Kontrol Et"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400">
+          Sunucu tarafında Trendyol yayını öncesi zorunlu alanlar doğrulanır. Yayınla
+          butonu, burada veya listede hazır görünmesiyle açılır (önce{" "}
+          <strong className="text-slate-300">Kontrol Et</strong> önerilir).
+        </p>
+
+        {prePublishResult ? (
+          <div className="space-y-3">
+            {prePublishResult.isPublishable &&
+            prePublishResult.errors.length === 0 ? (
+              <div
+                className="rounded-lg border border-emerald-800/80 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200"
+                role="status"
+              >
+                Hazır: Trendyol’a gönderim için zorunlu koşullar sağlanıyor.
+              </div>
+            ) : (
+              <div
+                className="rounded-lg border border-red-800/80 bg-red-950/40 px-3 py-2 text-sm text-red-100"
+                role="alert"
+              >
+                <span className="font-semibold text-red-200">Hatalar</span>
+                {prePublishResult.errors.length > 0 ? (
+                  <ul className="mt-2 list-inside list-disc space-y-1">
+                    {prePublishResult.errors.map((err, i) => (
+                      <li key={`${err.code}-${i}`}>
+                        {err.message}
+                        {err.field ? (
+                          <span className="text-red-300/80"> ({err.field})</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2">Yayın için gerekli koşullar sağlanmıyor.</p>
+                )}
+              </div>
             )}
-          </>
+
+            {prePublishResult.warnings.length > 0 && (
+              <div
+                className="rounded-lg border border-amber-800/80 bg-amber-950/30 px-3 py-2 text-sm text-amber-100"
+                role="status"
+              >
+                <span className="font-semibold text-amber-200">Uyarılar</span>
+                <ul className="mt-2 list-inside list-disc space-y-1">
+                  {prePublishResult.warnings.map((w, i) => (
+                    <li key={`${w.code}-${i}`}>{w.message}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         ) : (
-          <p className="text-sm text-slate-500">Kontrol yüklenemedi.</p>
+          <p className="text-sm text-slate-500">
+            Henüz sunucu doğrulaması çalıştırılmadı.{" "}
+            <strong className="text-slate-400">Kontrol Et</strong> ile başlayın.
+            {readiness && !readiness.ready && (
+              <span className="block pt-2 text-amber-200/90">
+                Ön izleme (sayfa verisi): {readiness.missing.length} eksik madde
+                listeleniyor olabilir — kesin sonuç için Kontrol Et kullanın.
+              </span>
+            )}
+          </p>
         )}
       </div>
     </div>
