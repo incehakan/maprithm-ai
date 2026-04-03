@@ -102,10 +102,8 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
     text: string;
   } | null>(null);
 
+  // Maliyet: yalnızca XML feed senkronundan (Product.costPrice); yerel düzenleme yok
   // Pricing states - ürün değerleri yoksa kullanıcı ayarlarından varsayılan değerleri al
-  const [costPrice, setCostPrice] = useState<string>(
-    product.costPrice?.toString() ?? ""
-  );
   const [commissionRate, setCommissionRate] = useState<string>(
     product.commissionRate?.toString() ??
       defaultSettings?.commissionRate?.toString() ??
@@ -237,8 +235,13 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
   }
 
   async function handleCalculatePricing(save: boolean = false) {
-    if (!costPrice || parseFloat(costPrice) < 0) {
-      setMessage({ type: "error", text: "Maliyet fiyatı geçerli bir değer olmalıdır." });
+    const costNum = product.costPrice;
+    if (costNum == null || !Number.isFinite(costNum) || costNum < 0) {
+      setMessage({
+        type: "error",
+        text:
+          "Maliyet fiyatı XML feed ile gelir. Önce XML beslemenin senkron olduğundan emin olun."
+      });
       return;
     }
 
@@ -254,7 +257,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          costPrice: parseFloat(costPrice) || 0,
+          costPrice: costNum,
           commissionRate: parseFloat(commissionRate) || 0,
           cargoCost: parseFloat(cargoCost) || 0,
           vatRate: parseFloat(vatRate) || 0,
@@ -693,23 +696,35 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
             </h2>
 
             <p className="text-xs text-slate-400">
-              Maliyet ve gider bilgilerini girerek önerilen satış fiyatını hesaplayın.
+              Maliyet, XML beslemedeki ürün fiyatından alınır ve satış fiyatı güncellemelerinden
+              etkilenmez. Komisyon, kargo ve kâr oranlarını ayarlayıp önerilen satış fiyatını
+              hesaplayın.
             </p>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
-                  Maliyet Fiyatı (₺)
+                  Maliyet Fiyatı (₺) — XML
                 </label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
-                  value={costPrice}
-                  onChange={(e) => setCostPrice(e.target.value)}
-                  className="input text-sm"
-                  placeholder="0.00"
+                  readOnly
+                  tabIndex={-1}
+                  value={
+                    product.costPrice != null && Number.isFinite(product.costPrice)
+                      ? String(product.costPrice)
+                      : ""
+                  }
+                  className="input cursor-not-allowed bg-slate-900/60 text-sm text-slate-200"
+                  placeholder="XML senkronu sonrası"
+                  title="Bu değer XML feed senkronu ile doldurulur; elle değiştirilemez."
                 />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Kaynak: XML’deki fiyat. İlk eşleşmede veya maliyet boşken senkron yazılır; sonrasında
+                  sabit kalır.
+                </p>
               </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">
@@ -774,7 +789,11 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
             <button
               type="button"
               onClick={() => handleCalculatePricing(false)}
-              disabled={calculatingPrice || !costPrice}
+              disabled={
+                calculatingPrice ||
+                product.costPrice == null ||
+                !Number.isFinite(product.costPrice)
+              }
               className="btn-primary w-full"
             >
               {calculatingPrice ? "Hesaplanıyor..." : "Fiyat Hesapla"}

@@ -6,6 +6,8 @@ export type ProductWithHashes = ProductMatchCandidate & {
   priceHash: string | null;
   stockHash: string | null;
   contentHash: string | null;
+  /** Ürün maliyeti (XML feed ile doldurulur; fiyat/stok senkronunda korunur). */
+  costPrice?: number | null;
 };
 
 export type XmlFeedSmartBucket =

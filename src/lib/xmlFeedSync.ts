@@ -190,7 +190,11 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
         mappingPublishStatus: p.marketplaceMappings[0]?.publishStatus ?? null,
         priceHash: p.priceHash ?? null,
         stockHash: p.stockHash ?? null,
-        contentHash: p.contentHash ?? null
+        contentHash: p.contentHash ?? null,
+        costPrice:
+          p.costPrice != null && Number.isFinite(Number(p.costPrice))
+            ? Number(p.costPrice)
+            : null
       }));
 
       const diff = buildXmlFeedSmartDiff({ rows, products });
@@ -228,12 +232,21 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
           price: nextPrice,
           stock: nextStock
         });
+        const xmlListPrice =
+          item.row.price != null && Number.isFinite(Number(item.row.price))
+            ? Number(item.row.price)
+            : nextPrice;
+        const hasCost =
+          item.product.costPrice != null &&
+          Number.isFinite(Number(item.product.costPrice));
         const data: Prisma.ProductUpdateInput = {
           price: nextPrice,
           stock: nextStock,
           priceHash: h.priceHash,
           stockHash: h.stockHash,
-          contentHash: h.contentHash
+          contentHash: h.contentHash,
+          // Maliyet: XML’deki fiyat; bir kez set edilir, sonraki fiyat/stok senkronlarında değişmez.
+          ...(!hasCost ? { costPrice: xmlListPrice } : {})
         };
 
         await prisma.product.update({
@@ -309,6 +322,10 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
           stock: item.nextStock
         });
 
+        const hasCostBootstrap =
+          item.product.costPrice != null &&
+          Number.isFinite(Number(item.product.costPrice));
+
         await prisma.product.update({
           where: { id: item.product.id },
           data: {
@@ -318,6 +335,7 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             sku: nextSku,
             price: item.nextPrice,
             stock: item.nextStock,
+            ...(!hasCostBootstrap ? { costPrice: item.nextPrice } : {}),
             mainImageUrl: mergedImageUrls[0] ?? item.product.mainImageUrl,
             imageUrls:
               mergedImageUrls.length > 0
@@ -394,6 +412,7 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             description: item.row.normalizedDescription ?? null,
             price: nextPrice,
             stock: nextStock,
+            costPrice: nextPrice,
             sku: item.row.normalizedSku ?? null,
             brand: item.row.normalizedBrand ?? null,
             status: "ready",

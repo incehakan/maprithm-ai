@@ -66,10 +66,10 @@ export async function POST(request: Request, { params }: Params) {
 
     if (save === true) {
       try {
+        // Maliyet (costPrice) yalnızca XML feed senkronu ile set edilir; satış/komisyon kaydı bunu ezmez.
         await prisma.product.update({
           where: { id: params.id },
           data: {
-            costPrice: input.costPrice,
             commissionRate: input.commissionRate,
             cargoCost: input.cargoCost,
             vatRate: input.vatRate,
