@@ -3,6 +3,25 @@ import { prisma } from "@/lib/prisma";
 import { createActivityLog } from "@/lib/activityLog";
 import { requireActiveStore } from "@/lib/requireActiveStore";
 
+function toFiniteFloat(v: unknown, fallback: number): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
+function toFiniteFloatOrNull(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 export async function GET() {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
   try {
@@ -103,12 +122,14 @@ export async function POST(request: Request) {
 
     const data = {
       companyName: companyName || null,
-      defaultCurrency: defaultCurrency || "TRY",
-      defaultVatRate: typeof defaultVatRate === "number" ? defaultVatRate : 20,
-      defaultCommissionRate: typeof defaultCommissionRate === "number" ? defaultCommissionRate : null,
-      defaultCargoCost: typeof defaultCargoCost === "number" ? defaultCargoCost : null,
-      defaultTargetProfitRate: typeof defaultTargetProfitRate === "number" ? defaultTargetProfitRate : null,
-      defaultDesi: typeof defaultDesi === "number" ? defaultDesi : 1,
+      defaultCurrency: typeof defaultCurrency === "string" && defaultCurrency.trim()
+        ? defaultCurrency.trim()
+        : "TRY",
+      defaultVatRate: toFiniteFloat(defaultVatRate, 20),
+      defaultCommissionRate: toFiniteFloatOrNull(defaultCommissionRate),
+      defaultCargoCost: toFiniteFloatOrNull(defaultCargoCost),
+      defaultTargetProfitRate: toFiniteFloatOrNull(defaultTargetProfitRate),
+      defaultDesi: toFiniteFloat(defaultDesi, 1),
       fallbackBrand: fallbackBrand || null,
       fallbackCategory: fallbackCategory || null
     };
@@ -136,8 +157,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Save settings error:", error);
+    const detail =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Bilinmeyen hata";
     return NextResponse.json(
-      { error: "Ayarlar kaydedilirken hata oluştu." },
+      {
+        error: "Ayarlar kaydedilirken hata oluştu.",
+        details: detail.slice(0, 500)
+      },
       { status: 500 }
     );
   }

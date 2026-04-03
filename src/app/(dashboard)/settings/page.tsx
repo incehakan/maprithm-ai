@@ -119,7 +119,11 @@ function SettingsPageContent() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "Kaydetme başarısız.");
+        const hint =
+          typeof data?.details === "string" && data.details.trim()
+            ? ` ${data.details.trim()}`
+            : "";
+        throw new Error((data?.error || "Kaydetme başarısız.") + hint);
       }
 
       setMessage({
