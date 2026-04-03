@@ -61,6 +61,8 @@ type EffectiveCommercials = {
   overrideSalePrice?: number | null;
 };
 
+type CargoCompanyOpt = { id: number; label: string };
+
 type Props = { productId: string };
 
 function SearchableSelect<T>({
@@ -170,7 +172,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
   const [pickedBrandName, setPickedBrandName] = useState<string | null>(null);
   const [categories, setCategories] = useState<CatOpt[]>([]);
   const [categoryAttributes, setCategoryAttributes] = useState<CatAttr[]>([]);
-  const [cargoCompanyOptions, setCargoCompanyOptions] = useState<number[]>([]);
+  const [cargoCompanyOptions, setCargoCompanyOptions] = useState<CargoCompanyOpt[]>([]);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
 
   const [trendyolBrandId, setTrendyolBrandId] = useState<number | null>(null);
@@ -298,8 +300,25 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
       setCargoCompanyOptions(
         Array.isArray(data.cargoCompanyOptions)
           ? data.cargoCompanyOptions
-              .map((x: unknown) => Number(x))
-              .filter((x: number) => Number.isFinite(x))
+              .map((x: unknown) => {
+                if (x != null && typeof x === "object" && "id" in (x as object)) {
+                  const o = x as { id: unknown; label?: unknown };
+                  const id = Number(o.id);
+                  if (!Number.isFinite(id)) return null;
+                  const label =
+                    typeof o.label === "string" && o.label.trim()
+                      ? o.label.trim()
+                      : String(id);
+                  return { id, label };
+                }
+                if (typeof x === "number" && Number.isFinite(x)) {
+                  return { id: x, label: String(x) };
+                }
+                return null;
+              })
+              .filter(
+                (x: CargoCompanyOpt | null): x is CargoCompanyOpt => x != null
+              )
           : []
       );
       setReadiness(data.readiness ?? null);
@@ -1070,7 +1089,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
             />
           </div>
           <div>
-            <label className="label">Kargo Firma ID</label>
+            <label className="label">Kargo firması</label>
             <select
               className="input"
               value={cargoCompanyId ?? ""}
@@ -1081,15 +1100,15 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
               }
             >
               <option value="">— Kargo firması seçin —</option>
-              {cargoCompanyOptions.map((id) => (
-                <option key={id} value={id}>
-                  {id}
+              {cargoCompanyOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
                 </option>
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">
-              Seçenekler mağazanızda daha önce kullanılan Trendyol kargo firma
-              ID değerlerinden gelir.
+              Trendyol Marketplace yaygın kargo listesi ve mağaza/API verisiyle
+              doldurulur; anlaşmalı kargo panelden teyit edin.
             </p>
           </div>
           <div>
