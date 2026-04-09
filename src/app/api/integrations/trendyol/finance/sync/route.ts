@@ -152,8 +152,8 @@ export async function POST(request: Request) {
   });
 
   if (!api.ok) {
-    await prisma.trendyolFinanceSyncRun.update({
-      where: { id: syncRun.id },
+    await prisma.trendyolFinanceSyncRun.updateMany({
+      where: { id: syncRun.id, storeId: ctx.storeId },
       data: {
         httpStatus: api.status,
         errorMessage: api.message.slice(0, 4000),
@@ -222,8 +222,8 @@ export async function POST(request: Request) {
     linesUpserted += 1;
   }
 
-  await prisma.trendyolFinanceSyncRun.update({
-    where: { id: syncRun.id },
+  await prisma.trendyolFinanceSyncRun.updateMany({
+    where: { id: syncRun.id, storeId: ctx.storeId },
     data: {
       httpStatus: api.status,
       success: true,

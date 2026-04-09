@@ -65,8 +65,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Trendyol bağlantısı bulunamadı" }, { status: 400 });
   }
 
-  await prisma.productMarketplaceMapping.update({
-    where: { id: mapping.id },
+  await prisma.productMarketplaceMapping.updateMany({
+    where: { id: mapping.id, storeId: ctx.storeId },
     data: {
       publishStatus: "processing",
       lastErrorMessage: null,
@@ -83,8 +83,8 @@ export async function POST(request: Request) {
   });
 
   if (!apiResult.ok) {
-    await prisma.productMarketplaceMapping.update({
-      where: { id: mapping.id },
+    await prisma.productMarketplaceMapping.updateMany({
+      where: { id: mapping.id, storeId: ctx.storeId },
       data: {
         publishStatus: "failed",
         lastErrorMessage: apiResult.message.slice(0, 2000),
@@ -117,8 +117,8 @@ export async function POST(request: Request) {
   const successStatus = archived ? "archived" : "published";
 
   await prisma.$transaction(async (tx) => {
-    await tx.productMarketplaceMapping.update({
-      where: { id: mapping.id },
+    await tx.productMarketplaceMapping.updateMany({
+      where: { id: mapping.id, storeId: ctx.storeId },
       data: {
         publishStatus: successStatus,
         batchRequestId: batchRequestId ?? mapping.batchRequestId ?? null,
@@ -129,8 +129,8 @@ export async function POST(request: Request) {
       }
     });
 
-    await tx.product.update({
-      where: { id: productId },
+    await tx.product.updateMany({
+      where: { id: productId, storeId: ctx.storeId },
       data: {
         lifecycleStatus: successStatus,
         archivedAt: archived ? now : null,

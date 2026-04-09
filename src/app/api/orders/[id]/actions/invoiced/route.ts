@@ -9,6 +9,8 @@ import {
   logOrderOperationFailed,
   logOrderOperationStarted
 } from "@/lib/trendyolOrderOperationLog";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
+import { jsonError } from "@/lib/errors/errorResponse";
 
 type Params = { params: { id: string } };
 
@@ -17,14 +19,19 @@ export async function POST(request: Request, { params }: Params) {
   try {
     ctx = await requireActiveStore();
   } catch (e: any) {
-    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
-    return NextResponse.json({ success: false, error: msg }, { status: 401 });
+    const noStore = e?.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
 
   try {
     requirePermission(ctx, "orders.manage");
   } catch {
-    return NextResponse.json({ success: false, error: "Erişim yok." }, { status: 403 });
+    return jsonError("FORBIDDEN", {
+      userMessage: "Bu işlem için yetkiniz yok.",
+      httpStatus: 403
+    });
   }
 
   const order = await prisma.marketplaceOrder.findFirst({
@@ -32,7 +39,10 @@ export async function POST(request: Request, { params }: Params) {
     select: { id: true, shipmentPackageId: true, packageStatus: true }
   });
   if (!order) {
-    return NextResponse.json({ success: false, error: "Sipariş bulunamadı." }, { status: 404 });
+    return jsonError("NOT_FOUND", {
+      userMessage: "Sipariş bulunamadı.",
+      httpStatus: 404
+    });
   }
 
   const body = (await request.json().catch(() => null)) as
@@ -57,15 +67,12 @@ export async function POST(request: Request, { params }: Params) {
       invoiceNumber
     });
 
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id },
-      data: {
-        packageStatus: result.sentStatus,
-        lastFetchedAt: new Date(),
-        packageStatusUpdatedAt: new Date(),
-        lastIngestSource: TRENDYOL_ORDER_INGEST_SOURCE.OPERATION,
-        invoiceNumber: invoiceNumber ?? undefined
-      }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      packageStatus: result.sentStatus,
+      lastFetchedAt: new Date(),
+      packageStatusUpdatedAt: new Date(),
+      lastIngestSource: TRENDYOL_ORDER_INGEST_SOURCE.OPERATION,
+      invoiceNumber: invoiceNumber ?? undefined
     });
 
     await prisma.marketplaceOrderEvent.create({

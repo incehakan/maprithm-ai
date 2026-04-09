@@ -82,8 +82,8 @@ export async function POST(_request: Request, { params }: Params) {
   });
 
   if (!api.ok) {
-    await prisma.productMarketplaceMapping.update({
-      where: { id: mapping.id },
+    await prisma.productMarketplaceMapping.updateMany({
+      where: { id: mapping.id, storeId: ctx.storeId },
       data: {
         publishStatus: "failed",
         lastErrorMessage: api.message.slice(0, 2000),
@@ -104,8 +104,8 @@ export async function POST(_request: Request, { params }: Params) {
 
   const now = new Date();
   await prisma.$transaction(async (tx) => {
-    await tx.productMarketplaceMapping.update({
-      where: { id: mapping.id },
+    await tx.productMarketplaceMapping.updateMany({
+      where: { id: mapping.id, storeId: ctx.storeId },
       data: {
         publishStatus: "archived",
         archivedAt: now,
@@ -114,8 +114,8 @@ export async function POST(_request: Request, { params }: Params) {
       }
     });
 
-    await tx.product.update({
-      where: { id: params.id },
+    await tx.product.updateMany({
+      where: { id: params.id, storeId: ctx.storeId },
       data: {
         lifecycleStatus: "archived",
         archivedAt: now

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { recordShippingOperationAudit } from "@/lib/orderShippingAudit";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import { fetchCommonLabelFromTrendyol } from "@/lib/trendyolShipping";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
 export async function POST(
   request: Request,
@@ -41,12 +42,9 @@ export async function POST(
     order.cargoTrackingNumber?.trim() ||
     pkg;
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      shippingOperationStatus: "pending",
-      shippingOperationLastErrorMessage: null
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    shippingOperationStatus: "pending",
+    shippingOperationLastErrorMessage: null
   });
 
   const api = await fetchCommonLabelFromTrendyol({
@@ -56,12 +54,9 @@ export async function POST(
   });
 
   if (!api.ok) {
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id },
-      data: {
-        shippingOperationStatus: "error",
-        shippingOperationLastErrorMessage: api.message.slice(0, 2000)
-      }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      shippingOperationStatus: "error",
+      shippingOperationLastErrorMessage: api.message.slice(0, 2000)
     });
     await recordShippingOperationAudit({
       storeId: ctx.storeId,
@@ -79,18 +74,15 @@ export async function POST(
   }
 
   const { labelUrl, rawData, format } = api.result;
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      cargoLabelUrl: labelUrl,
-      cargoLabelRawData:
-        rawData === undefined || rawData === null
-          ? Prisma.JsonNull
-          : (rawData as Prisma.InputJsonValue),
-      labelFetchedAt: new Date(),
-      shippingOperationStatus: "success",
-      shippingOperationLastErrorMessage: null
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    cargoLabelUrl: labelUrl,
+    cargoLabelRawData:
+      rawData === undefined || rawData === null
+        ? Prisma.JsonNull
+        : (rawData as Prisma.InputJsonValue),
+    labelFetchedAt: new Date(),
+    shippingOperationStatus: "success",
+    shippingOperationLastErrorMessage: null
   });
 
   await recordShippingOperationAudit({

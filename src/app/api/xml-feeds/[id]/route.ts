@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireActiveStore } from "@/lib/requireActiveStore";
+import { secureXmlFeedSourceUpdateMany } from "@/lib/security/storeScope";
 
 type Params = { params: { id: string } };
-
-function getUserIdFromSession(session: { user?: { id?: string } | null } | null): string | null {
-  return session?.user?.id ?? null;
-}
 
 export async function PUT(request: Request, { params }: Params) {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -54,7 +51,7 @@ export async function PUT(request: Request, { params }: Params) {
     if (
       !anyPrisma.xmlFeedSource ||
       typeof anyPrisma.xmlFeedSource.findFirst !== "function" ||
-      typeof anyPrisma.xmlFeedSource.update !== "function"
+      typeof anyPrisma.xmlFeedSource.updateMany !== "function"
     ) {
       return NextResponse.json(
         {
@@ -75,9 +72,18 @@ export async function PUT(request: Request, { params }: Params) {
       );
     }
 
-    const updated = await anyPrisma.xmlFeedSource.update({
-      where: { id: params.id },
-      data: { ...data, storeId: ctx.storeId }
+    const u = await secureXmlFeedSourceUpdateMany(params.id, ctx.storeId, {
+      ...data
+    });
+    if (u.count === 0) {
+      return NextResponse.json(
+        { success: false, message: "XML feed kaynağı bulunamadı." },
+        { status: 404 }
+      );
+    }
+
+    const updated = await anyPrisma.xmlFeedSource.findFirst({
+      where: { id: params.id, userId: ctx.userId, storeId: ctx.storeId }
     });
 
     return NextResponse.json({

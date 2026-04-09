@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { createActivityLog } from "@/lib/activityLog";
+import { requireActiveStore } from "@/lib/requireActiveStore";
+import { secureProductUpdateMany } from "@/lib/security/storeScope";
+import { createErrorResponse, jsonError } from "@/lib/errors/errorResponse";
 
 type OptimizeResult = {
   title: string;
@@ -76,21 +78,26 @@ Sadece geçerli JSON üret, başka metin ekleme.`;
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user || !(session.user as any).id) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const noStore = e instanceof Error && e.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
-
-  const userId = (session.user as any).id as string;
+  const { userId, storeId } = ctx;
 
   try {
     const body = await request.json().catch(() => null);
     const productIds = body?.productIds;
     if (!Array.isArray(productIds) || productIds.length === 0) {
-      return NextResponse.json(
-        { error: "En az bir ürün seçin." },
-        { status: 400 }
-      );
+      return jsonError("VALIDATION_ERROR", {
+        userMessage: "En az bir ürün seçin.",
+        field: "productIds",
+        httpStatus: 400
+      });
     }
 
     const ids = productIds.filter((id: unknown) => typeof id === "string");
@@ -100,7 +107,7 @@ export async function POST(request: Request) {
 
     for (const productId of ids) {
       const product = await prisma.product.findFirst({
-        where: { id: productId, userId }
+        where: { id: productId, userId, storeId }
       });
 
       if (!product) {
@@ -127,15 +134,17 @@ export async function POST(request: Request) {
           : product.tags;
 
       try {
-        await prisma.product.update({
-          where: { id: productId },
-          data: {
-            name: optimized.title,
-            description: optimized.description,
-            seoDescription: optimized.seoDescription,
-            tags: tagsStr
-          }
+        const u = await secureProductUpdateMany(productId, storeId, {
+          name: optimized.title,
+          description: optimized.description,
+          seoDescription: optimized.seoDescription,
+          tags: tagsStr
         });
+        if (u.count === 0) {
+          results.push({ productId, success: false, error: "Ürün bulunamadı." });
+          errorCount++;
+          continue;
+        }
         results.push({ productId, success: true });
         successCount++;
       } catch (err) {
@@ -151,6 +160,8 @@ export async function POST(request: Request) {
 
     await createActivityLog({
       userId,
+      storeId,
+      membershipId: ctx.membershipId,
       action: "bulk_ai_optimize",
       entityType: "product",
       entityId: null,
@@ -165,9 +176,8 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Optimize products error:", error);
-    return NextResponse.json(
-      { error: "Toplu optimizasyon işlenirken hata oluştu." },
-      { status: 500 }
-    );
+    return createErrorResponse(error, {
+      route: "POST /api/ai/optimize-products"
+    });
   }
 }

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createActivityLog } from "@/lib/activityLog";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 import {
   buildTrackingLink,
   resolveCargoProviderDisplay
@@ -243,9 +244,10 @@ export async function simulateTestLifecycle(params: {
   const prev = order.packageStatus;
   const now = new Date();
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: { packageStatus: normalizedNext, packageStatusUpdatedAt: now, lastFetchedAt: now }
+  await secureMarketplaceOrderUpdateMany(order.id, storeId, {
+    packageStatus: normalizedNext,
+    packageStatusUpdatedAt: now,
+    lastFetchedAt: now
   });
 
   await prisma.marketplaceOrderEvent.create({
@@ -483,24 +485,21 @@ export async function updateTestTrackingAndLabel(params: {
     )}.pdf`;
   const labelFormat = params.labelFormat ?? "PDF";
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      cargoTrackingNumber: trackingNumber,
-      cargoTrackingLink: trackingLink ?? null,
-      cargoProviderCode: providerCode,
-      cargoProviderName: providerName,
-      cargoSenderNumber: cargoSenderNumber ?? undefined,
-      cargoLastEventAt: now,
-      cargoLastEventMessage: "Test takip güncellemesi",
-      trackingRawData: { test: true, trackingNumber, providerCode } as unknown as Prisma.InputJsonValue,
-      trackingUpdatedAt: now,
-      cargoProviderChangedAt: order.cargoProviderChangedAt ?? now,
-      shippingOperationStatus: "success",
-      cargoLabelUrl: labelUrl,
-      cargoLabelRawData: { format: labelFormat, test: true } as unknown as Prisma.InputJsonValue,
-      labelFetchedAt: now
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, storeId, {
+    cargoTrackingNumber: trackingNumber,
+    cargoTrackingLink: trackingLink ?? null,
+    cargoProviderCode: providerCode,
+    cargoProviderName: providerName,
+    cargoSenderNumber: cargoSenderNumber ?? undefined,
+    cargoLastEventAt: now,
+    cargoLastEventMessage: "Test takip güncellemesi",
+    trackingRawData: { test: true, trackingNumber, providerCode } as unknown as Prisma.InputJsonValue,
+    trackingUpdatedAt: now,
+    cargoProviderChangedAt: order.cargoProviderChangedAt ?? now,
+    shippingOperationStatus: "success",
+    cargoLabelUrl: labelUrl,
+    cargoLabelRawData: { format: labelFormat, test: true } as unknown as Prisma.InputJsonValue,
+    labelFetchedAt: now
   });
 
   await prisma.marketplaceOrderTrackingEvent.create({
@@ -603,18 +602,15 @@ export async function simulateTestInvoice(params: {
   const invoiceDate = new Date(params.invoiceDateTime);
   if (Number.isNaN(invoiceDate.getTime())) throw new Error("invoiceDateTime geçersiz.");
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      invoiceNumber: params.invoiceNumber.trim(),
-      invoiceDateTime: invoiceDate,
-      invoiceLink: params.invoiceLink.trim(),
-      invoiceStatus: params.invoiceStatus,
-      invoiceSentAt: params.invoiceStatus === "sent" ? now : null,
-      invoiceLastErrorMessage: params.invoiceStatus === "failed" ? "Test invoice failed" : null,
-      invoiceRawData: { test: true } as unknown as Prisma.InputJsonValue,
-      lastFetchedAt: now
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, storeId, {
+    invoiceNumber: params.invoiceNumber.trim(),
+    invoiceDateTime: invoiceDate,
+    invoiceLink: params.invoiceLink.trim(),
+    invoiceStatus: params.invoiceStatus,
+    invoiceSentAt: params.invoiceStatus === "sent" ? now : null,
+    invoiceLastErrorMessage: params.invoiceStatus === "failed" ? "Test invoice failed" : null,
+    invoiceRawData: { test: true } as unknown as Prisma.InputJsonValue,
+    lastFetchedAt: now
   });
 
   const invoice = await prisma.marketplaceOrderInvoice.create({
@@ -887,16 +883,13 @@ export async function simulateTestWebhook(params: {
   const prev = order.packageStatus;
   const next = normalizePackageStatusKey(params.nextPackageStatus) ?? params.nextPackageStatus;
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      packageStatus: next,
-      packageStatusUpdatedAt: now,
-      lastFetchedAt: now,
-      ...(params.trackingNumber ? { cargoTrackingNumber: params.trackingNumber.trim() } : {}),
-      ...(params.providerCode ? { cargoProviderCode: params.providerCode.trim() } : {}),
-      ...(params.providerName ? { cargoProviderName: params.providerName.trim() } : {})
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, storeId, {
+    packageStatus: next,
+    packageStatusUpdatedAt: now,
+    lastFetchedAt: now,
+    ...(params.trackingNumber ? { cargoTrackingNumber: params.trackingNumber.trim() } : {}),
+    ...(params.providerCode ? { cargoProviderCode: params.providerCode.trim() } : {}),
+    ...(params.providerName ? { cargoProviderName: params.providerName.trim() } : {})
   });
 
   await prisma.marketplaceOrderEvent.create({

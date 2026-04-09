@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { requireActiveStore } from "@/lib/requireActiveStore";
 import {
   detectSourceTypeFromFileName,
@@ -19,13 +18,6 @@ const IMPORT_PERSIST_TX_MS = 15 * 60 * 1000;
 
 /** CSV / XLSX / XML içe aktarma tek dosya üst sınırı (self-hosted + ters vekil client_max_body_size ile uyumlu olmalı). */
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
-
-function getUserIdFromSession(session: {
-  user?: { id?: string } | null;
-} | null): string | null {
-  if (!session?.user?.id) return null;
-  return session.user.id;
-}
 
 export async function POST(request: Request) {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
@@ -146,8 +138,8 @@ export async function POST(request: Request) {
           const chunk = rowPayloads.slice(i, i + BATCH);
           await tx.importRow.createMany({ data: chunk });
         }
-        await tx.importJob.update({
-          where: { id: job.id },
+        await tx.importJob.updateMany({
+          where: { id: job.id, storeId: ctx.storeId },
           data: {
             status: "completed",
             totalRows,
@@ -162,8 +154,8 @@ export async function POST(request: Request) {
       }
     );
 
-    const updated = await prisma.importJob.findUnique({
-      where: { id: job.id }
+    const updated = await prisma.importJob.findFirst({
+      where: { id: job.id, storeId: ctx.storeId }
     });
 
     return NextResponse.json({
@@ -174,8 +166,8 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     console.error("import job persist error:", e);
-    await prisma.importJob.update({
-      where: { id: job.id },
+    await prisma.importJob.updateMany({
+      where: { id: job.id, storeId: ctx.storeId },
       data: {
         status: "failed",
         totalRows: 0,

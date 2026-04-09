@@ -30,16 +30,24 @@ export async function GET() {
     orderBy: { createdAt: "desc" }
   });
 
-  const mapped = products.map((p) => ({
-    id: p.id,
-    userId: p.userId,
-    name: p.name,
-    description: p.description,
-    price: Number(p.price),
-    stock: p.stock,
-    lifecycleStatus: (p as any).lifecycleStatus ?? resolveLifecycleStatus(p.status),
-    createdAt: p.createdAt.toISOString()
-  }));
+  const mapped = products.map((p) => {
+    const row = p as Record<string, unknown>;
+    return {
+      id: p.id,
+      userId: p.userId,
+      name: p.name,
+      description: p.description,
+      price: Number(p.price),
+      stock: p.stock,
+      lifecycleStatus: (p as any).lifecycleStatus ?? resolveLifecycleStatus(p.status),
+      createdAt: p.createdAt.toISOString(),
+      lastXmlSyncAt: (row.lastXmlSyncAt as Date | null)?.toISOString?.() ?? null,
+      lastMarketplaceSyncAt: (row.lastMarketplaceSyncAt as Date | null)?.toISOString?.() ?? null,
+      marketplaceSyncStatus: (row.marketplaceSyncStatus as string | null) ?? null,
+      marketplaceSyncError: (row.marketplaceSyncError as string | null) ?? null,
+      marketplaceSyncSource: (row.marketplaceSyncSource as string | null) ?? null
+    };
+  });
 
   return NextResponse.json(mapped);
 }

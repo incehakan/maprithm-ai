@@ -11,6 +11,7 @@ import {
   logOrderOperationFailed,
   logOrderOperationStarted
 } from "@/lib/trendyolOrderOperationLog";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
 type Params = { params: { id: string } };
 
@@ -71,9 +72,9 @@ export async function POST(request: Request, { params }: Params) {
       payload
     );
 
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id },
-      data: { packageStatus: result.sentStatus, lastFetchedAt: new Date() }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      packageStatus: result.sentStatus,
+      lastFetchedAt: new Date()
     });
 
     await prisma.marketplaceOrderEvent.create({

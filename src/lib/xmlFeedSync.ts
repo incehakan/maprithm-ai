@@ -14,11 +14,21 @@ import {
   releaseXmlFeedSyncLock,
   tryAcquireXmlFeedSyncLock
 } from "@/lib/xmlFeedSyncLock";
+import { secureXmlFeedSourceUpdateMany } from "@/lib/security/storeScope";
 import { hashesFromProductSnapshot, hashesFromXmlRow } from "@/lib/xmlProductHashes";
 import { withTrendyolXmlSyncConcurrency } from "@/lib/trendyolXmlSyncConcurrency";
 import { publishProductToTrendyol } from "@/lib/trendyolPublishProduct";
 import { runTrendyolProductPublishPipeline } from "@/lib/trendyolPublishProductPipeline";
 import { logger } from "@/lib/logger";
+import { MarketplaceSyncSource } from "@/lib/xml-sync/types";
+import {
+  markMarketplaceNotApplicable,
+  markMarketplacePendingAfterXmlDbUpdate,
+  markMarketplaceSyncFailed,
+  markMarketplaceSyncPending,
+  markMarketplaceSyncSuccess,
+  resolveMarketplaceSyncSourceFromXmlKind
+} from "@/lib/xml-sync/marketplaceSyncState";
 
 export type SyncSummary = {
   matchedCount: number;
@@ -223,11 +233,15 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
         });
       };
 
+      const hasTrendyolMappingRow = (p: XmlFeedSmartItemBase["product"]) =>
+        p.mappingPublishStatus != null;
+
       const applyCommercial = async (
         item: XmlFeedSmartItemBase,
         kind: "priceOnly" | "stockOnly" | "priceAndStock"
       ) => {
         const { nextPrice, nextStock } = item;
+        const syncNow = new Date();
         const h = hashPayloadForProduct(item.product, {
           price: nextPrice,
           stock: nextStock
@@ -239,52 +253,103 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
         const hasCost =
           item.product.costPrice != null &&
           Number.isFinite(Number(item.product.costPrice));
-        const data: Prisma.ProductUpdateInput = {
+        const data: Prisma.ProductUpdateManyMutationInput = {
           price: nextPrice,
           stock: nextStock,
           priceHash: h.priceHash,
           stockHash: h.stockHash,
           contentHash: h.contentHash,
-          // Maliyet: XML’deki fiyat; bir kez set edilir, sonraki fiyat/stok senkronlarında değişmez.
+          lastXmlSyncAt: syncNow,
           ...(!hasCost ? { costPrice: xmlListPrice } : {})
         };
 
-        await prisma.product.update({
-          where: { id: item.product.id },
+        const n = await prisma.product.updateMany({
+          where: { id: item.product.id, storeId: params.storeId },
           data
         });
+        if (n.count === 0) return;
         dbWriteCount += 1;
 
-        if (kind === "priceOnly") {
-          await logProduct("PRICE_UPDATED", item.product.id, `XML: yalnızca fiyat güncellendi`);
-        } else if (kind === "stockOnly") {
-          await logProduct("STOCK_UPDATED", item.product.id, `XML: yalnızca stok güncellendi`);
-        } else {
-          await logProduct(
-            "PRICE_UPDATED",
-            item.product.id,
-            `XML: fiyat ve stok güncellendi`
-          );
+        const kindLabel =
+          kind === "priceOnly"
+            ? "yalnızca fiyat"
+            : kind === "stockOnly"
+              ? "yalnızca stok"
+              : "fiyat ve stok";
+        await logProduct(
+          "XML_PRODUCT_UPDATED",
+          item.product.id,
+          `XML: panel güncellendi (${kindLabel})`
+        );
+
+        const source = resolveMarketplaceSyncSourceFromXmlKind(kind);
+
+        if (!canSyncTrendyol) {
+          await markMarketplaceNotApplicable({
+            productId: item.product.id,
+            storeId: params.storeId
+          });
+          return;
         }
 
-        if (canSyncTrendyol) {
-          const pushed = await maybePushTrendyolInventory({
-            userId: params.userId,
-            storeId: params.storeId,
-            sellerId,
+        if (!hasTrendyolMappingRow(item.product)) {
+          await markMarketplaceNotApplicable({
             productId: item.product.id,
-            mappingPublishStatus: item.product.mappingPublishStatus,
-            price: nextPrice,
-            stock: nextStock
+            storeId: params.storeId
           });
-          if (pushed) {
-            trendyolInventoryPushCount += 1;
-            await logProduct(
-              "TRENDYOL_PRICE_STOCK_SYNCED_FROM_XML_FEED",
-              item.product.id,
-              `XML Smart: Trendyol envanter API`
-            );
-          }
+          return;
+        }
+
+        if (item.product.mappingPublishStatus !== "published") {
+          await markMarketplacePendingAfterXmlDbUpdate({
+            productId: item.product.id,
+            storeId: params.storeId,
+            userId: params.userId,
+            membershipId
+          });
+          return;
+        }
+
+        await markMarketplaceSyncPending({
+          productId: item.product.id,
+          storeId: params.storeId,
+          source,
+          userId: params.userId,
+          membershipId
+        });
+
+        const pushed = await maybePushTrendyolInventory({
+          userId: params.userId,
+          storeId: params.storeId,
+          sellerId,
+          productId: item.product.id,
+          mappingPublishStatus: item.product.mappingPublishStatus,
+          price: nextPrice,
+          stock: nextStock
+        });
+        if (pushed) {
+          trendyolInventoryPushCount += 1;
+          await markMarketplaceSyncSuccess({
+            productId: item.product.id,
+            storeId: params.storeId,
+            source,
+            userId: params.userId,
+            membershipId
+          });
+          await logProduct(
+            "TRENDYOL_PRICE_STOCK_SYNCED_FROM_XML_FEED",
+            item.product.id,
+            `XML Smart: Trendyol envanter API kabul etti`
+          );
+        } else {
+          await markMarketplaceSyncFailed({
+            productId: item.product.id,
+            storeId: params.storeId,
+            source,
+            errorMessage: "Trendyol fiyat/stok API yanıtı alınamadı veya reddedildi.",
+            userId: params.userId,
+            membershipId
+          });
         }
       };
 
@@ -326,8 +391,9 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
           item.product.costPrice != null &&
           Number.isFinite(Number(item.product.costPrice));
 
-        await prisma.product.update({
-          where: { id: item.product.id },
+        const contentSyncNow = new Date();
+        const nContent = await prisma.product.updateMany({
+          where: { id: item.product.id, storeId: params.storeId },
           data: {
             name: nextName,
             description: nextDesc,
@@ -345,43 +411,101 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             lifecycleStatus: "ready",
             priceHash: hashes.priceHash,
             stockHash: hashes.stockHash,
-            contentHash: hashes.contentHash
+            contentHash: hashes.contentHash,
+            lastXmlSyncAt: contentSyncNow
           }
         });
+        if (nContent.count === 0) continue;
         dbWriteCount += 1;
 
         await logProduct(
-          "FULL_UPDATED",
+          "XML_PRODUCT_UPDATED",
           item.product.id,
           `XML: içerik (ve ticari alanlar) güncellendi`
         );
 
-        if (canSyncTrendyol && item.product.mappingPublishStatus === "published") {
-          const pub = await withTrendyolXmlSyncConcurrency(() =>
-            runTrendyolProductPublishPipeline({
-              userId: params.userId,
-              storeId: params.storeId,
-              membershipId,
-              productId: item.product.id,
-              contentRepublishMode: true,
-              publishProduct: publishProductToTrendyol,
-              skipActivityLog: true
-            })
+        if (!canSyncTrendyol) {
+          await markMarketplaceNotApplicable({
+            productId: item.product.id,
+            storeId: params.storeId
+          });
+          continue;
+        }
+
+        if (!hasTrendyolMappingRow(item.product)) {
+          await markMarketplaceNotApplicable({
+            productId: item.product.id,
+            storeId: params.storeId
+          });
+          continue;
+        }
+
+        if (item.product.mappingPublishStatus !== "published") {
+          await markMarketplacePendingAfterXmlDbUpdate({
+            productId: item.product.id,
+            storeId: params.storeId,
+            userId: params.userId,
+            membershipId
+          });
+          continue;
+        }
+
+        await markMarketplaceSyncPending({
+          productId: item.product.id,
+          storeId: params.storeId,
+          source: MarketplaceSyncSource.XML_CONTENT_UPDATE,
+          userId: params.userId,
+          membershipId
+        });
+
+        const pub = await withTrendyolXmlSyncConcurrency(() =>
+          runTrendyolProductPublishPipeline({
+            userId: params.userId,
+            storeId: params.storeId,
+            membershipId,
+            productId: item.product.id,
+            contentRepublishMode: true,
+            publishProduct: publishProductToTrendyol,
+            skipActivityLog: true
+          })
+        );
+
+        const first = pub.ok ? pub.batch.results[0] : undefined;
+        if (!pub.ok) {
+          await markMarketplaceSyncFailed({
+            productId: item.product.id,
+            storeId: params.storeId,
+            source: MarketplaceSyncSource.XML_CONTENT_UPDATE,
+            errorMessage: pub.error ?? "Trendyol içerik güncellemesi başarısız.",
+            userId: params.userId,
+            membershipId
+          });
+          await logProduct(
+            "XML_PRODUCT_UPDATED",
+            item.product.id,
+            `XML Smart: Trendyol publish başarısız: ${pub.error}`
           );
-          if (pub.ok) {
-            trendyolPublishCount += 1;
-            await logProduct(
-              "FULL_UPDATED",
-              item.product.id,
-              `XML Smart: Trendyol tam publish kuyruğa alındı`
-            );
-          } else {
-            await logProduct(
-              "FULL_UPDATED",
-              item.product.id,
-              `XML Smart: Trendyol publish başarısız: ${pub.error}`
-            );
-          }
+          continue;
+        }
+
+        trendyolPublishCount += 1;
+        if (first?.status === "SUCCESS") {
+          await markMarketplaceSyncSuccess({
+            productId: item.product.id,
+            storeId: params.storeId,
+            source: MarketplaceSyncSource.XML_CONTENT_UPDATE,
+            userId: params.userId,
+            membershipId
+          });
+        } else if (first?.status === "FAILED") {
+          await markMarketplaceSyncFailed({
+            productId: item.product.id,
+            storeId: params.storeId,
+            source: MarketplaceSyncSource.XML_CONTENT_UPDATE,
+            errorMessage: first.errorMessage ?? "Trendyol içerik isteği reddedildi.",
+            userId: params.userId,
+            membershipId
+          });
         }
       }
 
@@ -404,7 +528,8 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             ? Math.max(0, Math.round(item.row.stock))
             : 0;
 
-        await prisma.product.create({
+        const createdAt = new Date();
+        const created = await prisma.product.create({
           data: {
             userId: params.userId,
             storeId: params.storeId,
@@ -421,24 +546,38 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             imageUrls: imageUrls.length > 0 ? toSafeJson(imageUrls) : Prisma.JsonNull,
             priceHash: hr.priceHash,
             stockHash: hr.stockHash,
-            contentHash: hr.contentHash
+            contentHash: hr.contentHash,
+            lastXmlSyncAt: createdAt,
+            marketplaceSyncStatus: "NOT_APPLICABLE",
+            marketplaceSyncError: null,
+            marketplaceSyncSource: null
           }
         });
         dbWriteCount += 1;
+        await logProduct(
+          "XML_PRODUCT_UPDATED",
+          created.id,
+          `XML: yeni ürün oluşturuldu (feed eşleşmesi)`
+        );
       }
 
       if (source.deactivateMissingFromFeed && diff.missingFromFeed.length > 0) {
         for (const p of diff.missingFromFeed) {
           const hm = hashPayloadForProduct(p, { stock: 0 });
-          await prisma.product.update({
-            where: { id: p.id },
+          const deactNow = new Date();
+          await prisma.product.updateMany({
+            where: { id: p.id, storeId: params.storeId },
             data: {
               stock: 0,
               lifecycleStatus: "draft",
               status: "draft",
               priceHash: hm.priceHash,
               stockHash: hm.stockHash,
-              contentHash: hm.contentHash
+              contentHash: hm.contentHash,
+              lastXmlSyncAt: deactNow,
+              marketplaceSyncStatus: "NOT_APPLICABLE",
+              marketplaceSyncError: null,
+              marketplaceSyncSource: null
             }
           });
           missingDeactivatedCount += 1;
@@ -480,17 +619,14 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
       };
 
       const now = new Date();
-      await prisma.xmlFeedSource.update({
-        where: { id: source.id },
-        data: {
-          lastSyncedAt: now,
-          lastSyncStatus: "success",
-          lastSyncProductsUpdated: dbWriteCount,
-          lastSyncSkippedCount: skippedNoChangeCount,
-          lastSyncPublishedCount: trendyolPublishCount,
-          lastSyncInventoryPushCount: trendyolInventoryPushCount,
-          lastSyncMessage: `DB yazım: ${dbWriteCount}, atlanan: ${skippedNoChangeCount}, Trendyol envanter: ${trendyolInventoryPushCount}, Trendyol publish: ${trendyolPublishCount}`
-        }
+      await secureXmlFeedSourceUpdateMany(source.id, params.storeId, {
+        lastSyncedAt: now,
+        lastSyncStatus: "success",
+        lastSyncProductsUpdated: dbWriteCount,
+        lastSyncSkippedCount: skippedNoChangeCount,
+        lastSyncPublishedCount: trendyolPublishCount,
+        lastSyncInventoryPushCount: trendyolInventoryPushCount,
+        lastSyncMessage: `DB yazım: ${dbWriteCount}, atlanan: ${skippedNoChangeCount}, Trendyol envanter: ${trendyolInventoryPushCount}, Trendyol publish: ${trendyolPublishCount}`
       });
 
       await createActivityLog({
@@ -513,17 +649,14 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
         entityId: source.id,
         message
       });
-      await prisma.xmlFeedSource.update({
-        where: { id: source.id },
-        data: {
-          lastSyncedAt: new Date(),
-          lastSyncStatus: "failed",
-          lastSyncProductsUpdated: 0,
-          lastSyncSkippedCount: 0,
-          lastSyncPublishedCount: 0,
-          lastSyncInventoryPushCount: 0,
-          lastSyncMessage: message.slice(0, 1000)
-        }
+      await secureXmlFeedSourceUpdateMany(source.id, params.storeId, {
+        lastSyncedAt: new Date(),
+        lastSyncStatus: "failed",
+        lastSyncProductsUpdated: 0,
+        lastSyncSkippedCount: 0,
+        lastSyncPublishedCount: 0,
+        lastSyncInventoryPushCount: 0,
+        lastSyncMessage: message.slice(0, 1000)
       });
       await createActivityLog({
         userId: params.userId,

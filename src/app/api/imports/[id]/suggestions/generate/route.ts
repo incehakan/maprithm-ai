@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireActiveStore } from "@/lib/requireActiveStore";
 import {
   trendyolBrandListableWhere,
   trendyolCategoryListableWhere
@@ -83,13 +83,6 @@ export type RowRuleMatchResult = {
   };
 };
 
-function getUserIdFromSession(session: {
-  user?: { id?: string } | null;
-} | null): string | null {
-  if (!session?.user?.id) return null;
-  return session.user.id;
-}
-
 const PLATFORM = "trendyol";
 
 function mapBrandCandidates(c: ScoredBrandCandidate[]) {
@@ -118,14 +111,19 @@ function mapCategoryCandidates(c: ScoredCategoryCandidate[]) {
  * 3) Hata / kota / key yok → kural tabanlı ilk aday, düşük güven
  */
 export async function POST(request: Request, { params }: Params) {
-  const session = await auth();
-  const userId = getUserIdFromSession(session);
-  if (!userId) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
 
   const job = await prisma.importJob.findFirst({
-    where: { id: params.id, userId }
+    where: { id: params.id, userId: ctx.userId, storeId: ctx.storeId }
   });
 
   if (!job) {
@@ -165,6 +163,7 @@ export async function POST(request: Request, { params }: Params) {
 
   const rowWhere = {
     importJobId: params.id,
+    importJob: { storeId: job.storeId },
     ...(filterIds ? { id: { in: filterIds } } : {})
   };
 
@@ -572,8 +571,14 @@ export async function POST(request: Request, { params }: Params) {
         }
         summary = summary.slice(0, 4000);
 
-        await prisma.importRowMarketplaceSuggestion.update({
-          where: { id: savedSuggestion.id },
+        await prisma.importRowMarketplaceSuggestion.updateMany({
+          where: {
+            id: savedSuggestion.id,
+            importRow: {
+              importJobId: job.id,
+              importJob: { storeId: ctx.storeId }
+            }
+          },
           data: {
             aiReasoningSummary: summary,
             missingRequiredAttributes:
@@ -622,7 +627,10 @@ export async function POST(request: Request, { params }: Params) {
   if (!useBatch) {
     const suggestions = await prisma.importRowMarketplaceSuggestion.findMany({
       where: {
-        importRow: { importJobId: params.id },
+        importRow: {
+          importJobId: params.id,
+          importJob: { storeId: job.storeId }
+        },
         importRowId: { in: importRows.map((r) => r.id) }
       },
       include: {

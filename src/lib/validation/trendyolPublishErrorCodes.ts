@@ -1,4 +1,7 @@
-/** Trendyol ön-yayın doğrulama — sabit hata kodları (API + UI). */
+/**
+ * Trendyol ön-yayın doğrulama — sabit hata kodları (API + UI).
+ * `AppErrorCode` / `src/lib/errors/errorCatalog.ts` ile aynı string değerleri paylaşır; mesaj metni katalogdan gelir.
+ */
 export const TrendyolPrePublishErrorCode = {
   STORE_CONTEXT_INVALID: "STORE_CONTEXT_INVALID",
   TRENDYOL_CONNECTION_MISSING: "TRENDYOL_CONNECTION_MISSING",
@@ -26,3 +29,22 @@ export const TrendyolPrePublishWarningCode = {
   FEW_IMAGES: "FEW_IMAGES",
   SEO_EMPTY: "SEO_EMPTY"
 } as const;
+
+/** HTTP publish + parse + iş kuralları — validation ile aynı isim uzayında tutulur. */
+export const TrendyolPublishRuntimeErrorCode = {
+  TRENDYOL_PUBLISH_REQUEST_FAILED: "TRENDYOL_PUBLISH_REQUEST_FAILED",
+  TRENDYOL_PUBLISH_RESPONSE_UNPARSEABLE: "TRENDYOL_PUBLISH_RESPONSE_UNPARSEABLE",
+  TRENDYOL_PUBLISH_ITEM_FAILED: "TRENDYOL_PUBLISH_ITEM_FAILED",
+  TRENDYOL_PUBLISH_VALIDATION_FAILED: "TRENDYOL_PUBLISH_VALIDATION_FAILED",
+  TRENDYOL_PUBLISH_GATE_BLOCKED: "TRENDYOL_PUBLISH_GATE_BLOCKED",
+  TRENDYOL_INVALID_BARCODE: "TRENDYOL_INVALID_BARCODE",
+  TRENDYOL_CATEGORY_MISSING: "TRENDYOL_CATEGORY_MISSING",
+  TRENDYOL_ATTRIBUTE_MISSING: "TRENDYOL_ATTRIBUTE_MISSING",
+  TRENDYOL_CARGO_INVALID: "TRENDYOL_CARGO_INVALID",
+  TRENDYOL_MAPPING_MISSING: "TRENDYOL_MAPPING_MISSING",
+  TRENDYOL_PUBLISH_PAYLOAD_BUILD_FAILED: "TRENDYOL_PUBLISH_PAYLOAD_BUILD_FAILED",
+  TRENDYOL_PUBLISH_BARCODE_MATCH_FAILED: "TRENDYOL_PUBLISH_BARCODE_MATCH_FAILED"
+} as const;
+
+export type TrendyolPublishRuntimeErrorCodeValue =
+  (typeof TrendyolPublishRuntimeErrorCode)[keyof typeof TrendyolPublishRuntimeErrorCode];

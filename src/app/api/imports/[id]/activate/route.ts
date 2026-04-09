@@ -1,31 +1,31 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { createActivityLog } from "@/lib/activityLog";
+import { requireActiveStore } from "@/lib/requireActiveStore";
+import { secureImportJobUpdateMany } from "@/lib/security/storeScope";
 
 type Params = { params: { id: string } };
 
-function getUserIdFromSession(session: {
-  user?: { id?: string } | null;
-} | null): string | null {
-  if (!session?.user?.id) return null;
-  return session.user.id;
-}
-
 export async function POST(_request: Request, { params }: Params) {
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
   try {
-    const session = await auth();
-    const userId = getUserIdFromSession(session);
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, message: "Yetkisiz." },
-        { status: 401 }
-      );
-    }
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ success: false, message: msg }, { status: 401 });
+  }
 
-    const anyPrisma = prisma as any;
-    const job = await anyPrisma.importJob.findFirst({
-      where: { id: params.id, userId, usageStatus: { not: "deleted" } },
+  try {
+    const job = await prisma.importJob.findFirst({
+      where: {
+        id: params.id,
+        userId: ctx.userId,
+        storeId: ctx.storeId,
+        usageStatus: { not: "deleted" }
+      },
       select: { id: true, originalFileName: true, usageStatus: true }
     });
     if (!job) {
@@ -35,13 +35,20 @@ export async function POST(_request: Request, { params }: Params) {
       );
     }
 
-    await anyPrisma.importJob.update({
-      where: { id: params.id },
-      data: { usageStatus: "active" }
+    const u = await secureImportJobUpdateMany(params.id, ctx.storeId, {
+      usageStatus: "active"
     });
+    if (u.count === 0) {
+      return NextResponse.json(
+        { success: false, message: "İçe aktarma bulunamadı." },
+        { status: 404 }
+      );
+    }
 
     await createActivityLog({
-      userId,
+      userId: ctx.userId,
+      storeId: ctx.storeId,
+      membershipId: ctx.membershipId,
       action: "IMPORT_ACTIVATED",
       entityType: "import_job",
       entityId: params.id,

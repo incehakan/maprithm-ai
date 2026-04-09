@@ -19,6 +19,12 @@ type Product = {
   lifecycleStatus: string;
   displayStatus: "active" | "out_of_stock" | "archived";
   mappingPublishStatus: string | null;
+  hasTrendyolMapping: boolean;
+  lastXmlSyncAt: string | null;
+  lastMarketplaceSyncAt: string | null;
+  marketplaceSyncStatus: string | null;
+  marketplaceSyncError: string | null;
+  marketplaceSyncSource: string | null;
   archivedAt: string | null;
   publishedAt: string | null;
   unpublishedAt: string | null;
@@ -908,7 +914,17 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
         </div>
       </div>
 
-      <ProductTrendyolMappingSection productId={product.id} />
+      <ProductTrendyolMappingSection
+        productId={product.id}
+        syncSnapshot={{
+          hasTrendyolMapping: product.hasTrendyolMapping,
+          lastXmlSyncAt: product.lastXmlSyncAt,
+          lastMarketplaceSyncAt: product.lastMarketplaceSyncAt,
+          marketplaceSyncStatus: product.marketplaceSyncStatus,
+          marketplaceSyncError: product.marketplaceSyncError,
+          marketplaceSyncSource: product.marketplaceSyncSource
+        }}
+      />
     </div>
   );
 }

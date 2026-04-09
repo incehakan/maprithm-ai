@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
 import { detectSourceTypeFromFileName } from "@/lib/importSourceType";
 import { safeParseJsonResponse } from "@/lib/safeParseJsonResponse";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 type ImportJobSummary = {
   id: string;
@@ -90,7 +91,9 @@ function ImportsPageContent() {
         message?: string;
       }>(res);
       if (!res.ok) {
-        throw new Error(data?.message || "Durum değiştirilemedi.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Durum değiştirilemedi." })
+        );
       }
       setActionToast({
         type: "success",
@@ -126,8 +129,11 @@ function ImportsPageContent() {
           setBlockingImport({ id, name, products: list });
           setSelectedBlockingIds(new Set(list.map((p) => p.id)));
         }
-        setListErrorDetail(data?.error || null);
-        throw new Error(data?.message || "Import silinemedi.");
+        const errText = resolveUserErrorMessage(data, {
+          fallback: "Import silinemedi."
+        });
+        setListErrorDetail(errText);
+        throw new Error(errText);
       }
       setBlockingImport(null);
       setSelectedBlockingIds(new Set());
@@ -188,7 +194,11 @@ function ImportsPageContent() {
         results?: Array<{ productId: string; ok: boolean; message?: string }>;
       }>(res);
       if (!res.ok) {
-        throw new Error(data?.message || "Toplu yayından kaldırma başarısız.");
+        throw new Error(
+          resolveUserErrorMessage(data, {
+            fallback: "Toplu yayından kaldırma başarısız."
+          })
+        );
       }
 
       const failedIds = new Set(

@@ -9,6 +9,7 @@ import {
   normalizeInvoiceMime,
   uploadTrendyolSellerInvoiceFile
 } from "@/lib/trendyolSellerInvoiceFile";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
 type Params = { params: { id: string } };
 
@@ -134,17 +135,14 @@ export async function POST(request: Request, { params }: Params) {
       shipmentPackageId: order.shipmentPackageId,
       error: result.message
     });
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id, storeId: ctx.storeId },
-      data: {
-        invoiceStatus: "failed",
-        invoiceLastErrorMessage: result.message.slice(0, 2000),
-        invoiceRawData: {
-          invoiceFileUploadError: result.message,
-          at: now.toISOString()
-        } as Prisma.InputJsonValue,
-        lastFetchedAt: now
-      }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      invoiceStatus: "failed",
+      invoiceLastErrorMessage: result.message.slice(0, 2000),
+      invoiceRawData: {
+        invoiceFileUploadError: result.message,
+        at: now.toISOString()
+      } as Prisma.InputJsonValue,
+      lastFetchedAt: now
     });
     await prisma.marketplaceOrderInvoice.create({
       data: {
@@ -197,23 +195,20 @@ export async function POST(request: Request, { params }: Params) {
     : order.invoiceNumber;
   const linkKeep = order.invoiceLink ?? PLACEHOLDER_FILE_LINK;
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id, storeId: ctx.storeId },
-    data: {
-      invoiceLink: linkKeep,
-      invoiceNumber: invNum,
-      invoiceDateTime: invDate,
-      invoiceSentAt: now,
-      invoiceStatus: "sent",
-      invoiceLastErrorMessage: null,
-      invoiceRawData: {
-        sellerInvoiceFile: true,
-        trendyolResponse: result.data,
-        at: now.toISOString()
-      } as Prisma.InputJsonValue,
-      lastFetchedAt: now,
-      lastIngestSource: "operation"
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    invoiceLink: linkKeep,
+    invoiceNumber: invNum,
+    invoiceDateTime: invDate,
+    invoiceSentAt: now,
+    invoiceStatus: "sent",
+    invoiceLastErrorMessage: null,
+    invoiceRawData: {
+      sellerInvoiceFile: true,
+      trendyolResponse: result.data,
+      at: now.toISOString()
+    } as Prisma.InputJsonValue,
+    lastFetchedAt: now,
+    lastIngestSource: "operation"
   });
 
   await prisma.marketplaceOrderInvoice.create({

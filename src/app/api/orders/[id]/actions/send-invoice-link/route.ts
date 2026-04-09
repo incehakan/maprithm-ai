@@ -9,6 +9,7 @@ import {
   validateInvoicePayload
 } from "@/lib/trendyolInvoice";
 import { logger } from "@/lib/logger";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
 type Params = { params: { id: string } };
 
@@ -156,14 +157,11 @@ export async function POST(request: Request, { params }: Params) {
       shipmentPackageId: order.shipmentPackageId,
       error: msg
     });
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id, storeId: ctx.storeId },
-      data: {
-        invoiceStatus: "failed",
-        invoiceLastErrorMessage: msg,
-        invoiceRawData: { error: msg, at: now.toISOString() } as Prisma.InputJsonValue,
-        lastFetchedAt: now
-      }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      invoiceStatus: "failed",
+      invoiceLastErrorMessage: msg,
+      invoiceRawData: { error: msg, at: now.toISOString() } as Prisma.InputJsonValue,
+      lastFetchedAt: now
     });
 
     await prisma.marketplaceOrderInvoice.create({

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
 import { TrendyolBrandSearchSelect } from "@/components/trendyol/TrendyolBrandSearchSelect";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 type CatOpt = { categoryId: number; name: string; isLeaf: boolean };
 type CatAttrVal = { attributeValueId: number; attributeValue: string };
@@ -267,7 +268,9 @@ function ImportTrendyolSuggestionDetailPageContent() {
         );
         const data = await res.json();
         if (!res.ok) {
-          throw new Error(data?.error || "Yüklenemedi.");
+          throw new Error(
+            resolveUserErrorMessage(data, { fallback: "Yüklenemedi." })
+          );
         }
         setSuggestion(data.suggestion);
         setImportRow(data.importRow);
@@ -379,7 +382,9 @@ function ImportTrendyolSuggestionDetailPageContent() {
       );
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Kaydedilemedi.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Kaydedilemedi." })
+        );
       }
       await load(null);
       setFlash(

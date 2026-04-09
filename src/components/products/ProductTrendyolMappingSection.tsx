@@ -5,6 +5,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { TrendyolBrandSearchSelect } from "@/components/trendyol/TrendyolBrandSearchSelect";
+import { ProductMarketplaceSyncChip } from "@/components/products/ProductMarketplaceSyncChip";
+import {
+  formatTrDate,
+  marketplaceSyncHeadline
+} from "@/lib/xml-sync/productSyncUi";
+import {
+  resolveUserErrorMessage,
+  userMessageForCode
+} from "@/lib/errors/resolveUserErrorMessage";
 
 type CatOpt = { categoryId: number; name: string; isLeaf: boolean };
 type CatAttrVal = { attributeValueId: number; attributeValue: string };
@@ -46,6 +55,12 @@ type MappingPayload = {
   publishedAt?: string | null;
   batchRequestId: string | null;
   lastErrorMessage: string | null;
+  lastPublishStatus?: string | null;
+  lastPublishErrorCode?: string | null;
+  lastPublishErrorMessage?: string | null;
+  lastPublishAttemptAt?: string | null;
+  lastSuccessfulPublishAt?: string | null;
+  lastPublishBatchId?: string | null;
   mainImageUrl: string | null;
   imageUrls?: unknown;
   attributes?: MappingAttr[];
@@ -69,7 +84,45 @@ type EffectiveCommercials = {
 
 type CargoCompanyOpt = { id: number; label: string };
 
-type Props = { productId: string };
+export type ProductSyncSnapshot = {
+  hasTrendyolMapping: boolean;
+  lastXmlSyncAt: string | null;
+  lastMarketplaceSyncAt: string | null;
+  marketplaceSyncStatus: string | null;
+  marketplaceSyncError: string | null;
+  marketplaceSyncSource: string | null;
+};
+
+type Props = { productId: string; syncSnapshot?: ProductSyncSnapshot | null };
+
+function trLastPublishStatus(s: string | null | undefined): string {
+  const u = (s ?? "").toUpperCase();
+  if (u === "SUCCESS") return "Yayınlandı (işlem özeti)";
+  if (u === "FAILED") return "Hata aldı";
+  if (u === "PENDING") return "Bekliyor";
+  return "—";
+}
+
+function trPublishErrorHint(code: string | null | undefined): string {
+  const c = code ?? "";
+  const hints: Record<string, string> = {
+    TRENDYOL_PUBLISH_REQUEST_FAILED: "Trendyol sunucusu veya ağ isteği başarısız oldu.",
+    TRENDYOL_PUBLISH_RESPONSE_UNPARSEABLE: "Yanıt beklenen formatta değil; destek ile iletişime geçin.",
+    TRENDYOL_PUBLISH_ITEM_FAILED: "Trendyol bu ürün satırını reddetti.",
+    TRENDYOL_PUBLISH_VALIDATION_FAILED: "Yayın öncesi zorunlu alanlar eksik veya geçersiz.",
+    TRENDYOL_PUBLISH_GATE_BLOCKED: "Ürün durumu veya iş kuralı nedeniyle gönderim engellendi.",
+    TRENDYOL_INVALID_BARCODE: "Barkod geçersiz veya Trendyol’da çakışıyor.",
+    TRENDYOL_CATEGORY_MISSING: "Trendyol kategorisi eksik.",
+    TRENDYOL_ATTRIBUTE_MISSING: "Zorunlu kategori özellikleri eksik.",
+    TRENDYOL_CARGO_INVALID: "Kargo seçimi geçersiz veya anlaşma yok.",
+    TRENDYOL_PUBLISH_BARCODE_MATCH_FAILED: "Batch sonucunda barkod eşleşmedi.",
+    TRENDYOL_ADDRESSES_MISSING: "Trendyol gönderim / iade adresi tanımlı değil.",
+    TRENDYOL_CONNECTION_INACTIVE: "Trendyol bağlantısı kapalı.",
+    TRENDYOL_SELLER_ID_MISSING: "Satıcı kimliği eksik.",
+    TRENDYOL_PUBLISH_PAYLOAD_BUILD_FAILED: "Gönderilecek veri oluşturulamadı."
+  };
+  return hints[c] ?? userMessageForCode(c);
+}
 
 function SearchableSelect<T>({
   label,
@@ -170,7 +223,10 @@ function SearchableSelect<T>({
   );
 }
 
-export function ProductTrendyolMappingSection({ productId }: Props) {
+export function ProductTrendyolMappingSection({
+  productId,
+  syncSnapshot
+}: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -218,7 +274,25 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
     type: "ok" | "err";
     text: string;
     missing?: string[];
+    summary?: { total: number; success: number; failed: number; pending: number };
+    resultLines?: Array<{ status: string; detail?: string }>;
   } | null>(null);
+  const [lastPublishStatus, setLastPublishStatus] = useState<string | null>(null);
+  const [lastPublishErrorCode, setLastPublishErrorCode] = useState<string | null>(
+    null
+  );
+  const [lastPublishErrorMessage, setLastPublishErrorMessage] = useState<
+    string | null
+  >(null);
+  const [lastPublishAttemptAt, setLastPublishAttemptAt] = useState<string | null>(
+    null
+  );
+  const [lastSuccessfulPublishAt, setLastSuccessfulPublishAt] = useState<
+    string | null
+  >(null);
+  const [lastPublishBatchIdState, setLastPublishBatchIdState] = useState<
+    string | null
+  >(null);
   const [mainImageUrl, setMainImageUrl] = useState("");
   const [imageUrlsText, setImageUrlsText] = useState("");
   const [attrState, setAttrState] = useState<
@@ -268,6 +342,12 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
         setBatchRequestId(null);
         setMappingPublishedAt(null);
         setLastErrorMessage(null);
+        setLastPublishStatus(null);
+        setLastPublishErrorCode(null);
+        setLastPublishErrorMessage(null);
+        setLastPublishAttemptAt(null);
+        setLastSuccessfulPublishAt(null);
+        setLastPublishBatchIdState(null);
       }
 
       if (data.mapping && !isPreview) {
@@ -298,6 +378,12 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
         setBatchRequestId(m.batchRequestId ?? null);
         setMappingPublishedAt(m.publishedAt ?? null);
         setLastErrorMessage(m.lastErrorMessage ?? null);
+        setLastPublishStatus(m.lastPublishStatus ?? null);
+        setLastPublishErrorCode(m.lastPublishErrorCode ?? null);
+        setLastPublishErrorMessage(m.lastPublishErrorMessage ?? null);
+        setLastPublishAttemptAt(m.lastPublishAttemptAt ?? null);
+        setLastSuccessfulPublishAt(m.lastSuccessfulPublishAt ?? null);
+        setLastPublishBatchIdState(m.lastPublishBatchId ?? null);
       }
 
       setPickedBrandName(
@@ -480,9 +566,7 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(
-          typeof data?.error === "string" ? data.error : "Doğrulama başarısız."
-        );
+        throw new Error(resolveUserErrorMessage(data, { fallback: "Doğrulama başarısız." }));
       }
       setPrePublishResult({
         isPublishable: Boolean(data.isPublishable),
@@ -510,25 +594,45 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
 
       if (!res.ok) {
         const missing = Array.isArray(data.missing) ? data.missing : [];
+        const total = typeof data.total === "number" ? data.total : 0;
+        const successCount = typeof data.success === "number" ? data.success : 0;
+        const fail = typeof data.failed === "number" ? data.failed : 0;
+        const pend = typeof data.pending === "number" ? data.pending : 0;
+        const results = Array.isArray(data.results) ? data.results : [];
         setPublishFlash({
           type: "err",
-          text:
-            typeof data.error === "string"
-              ? data.error
-              : "Trendyol gönderimi başarısız oldu.",
-          missing: missing.length ? missing : undefined
+          text: resolveUserErrorMessage(data, {
+            fallback: "Trendyol gönderimi başarısız oldu."
+          }),
+          missing: missing.length ? missing : undefined,
+          summary: { total, success: successCount, failed: fail, pending: pend },
+          resultLines: results.map((r: { status?: string; errorMessage?: string }) => ({
+            status: String(r?.status ?? ""),
+            detail: typeof r?.errorMessage === "string" ? r.errorMessage : undefined
+          }))
         });
         await load(trendyolCategoryId);
         router.refresh();
         return;
       }
 
+      const total = typeof data.total === "number" ? data.total : 0;
+      const successCount = typeof data.success === "number" ? data.success : 0;
+      const fail = typeof data.failed === "number" ? data.failed : 0;
+      const pend = typeof data.pending === "number" ? data.pending : 0;
+      const results = Array.isArray(data.results) ? data.results : [];
+
       setPublishFlash({
         type: "ok",
         text:
           typeof data.message === "string"
             ? data.message
-            : "İstek Trendyol'a iletildi."
+            : "İstek Trendyol'a iletildi.",
+        summary: { total, success: successCount, failed: fail, pending: pend },
+        resultLines: results.map((r: { status?: string; errorMessage?: string }) => ({
+          status: String(r?.status ?? ""),
+          detail: typeof r?.errorMessage === "string" ? r.errorMessage : undefined
+        }))
       });
       if (typeof data.batchRequestId === "string" && data.batchRequestId) {
         setBatchRequestId(data.batchRequestId);
@@ -849,8 +953,61 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
     );
   }
 
+  const syncHead =
+    syncSnapshot != null
+      ? marketplaceSyncHeadline({
+          marketplaceSyncStatus: syncSnapshot.marketplaceSyncStatus,
+          hasTrendyolMapping: syncSnapshot.hasTrendyolMapping,
+          lastXmlSyncAt: syncSnapshot.lastXmlSyncAt,
+          lastMarketplaceSyncAt: syncSnapshot.lastMarketplaceSyncAt
+        })
+      : null;
+
   return (
     <div className="space-y-6">
+      {syncSnapshot != null && (
+        <div className="card space-y-3 border border-slate-700/80 bg-slate-900/35">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-700 pb-2">
+            <h2 className="text-sm font-semibold text-slate-100">XML ↔ Trendyol senkron</h2>
+            <ProductMarketplaceSyncChip
+              marketplaceSyncStatus={syncSnapshot.marketplaceSyncStatus}
+              hasTrendyolMapping={syncSnapshot.hasTrendyolMapping}
+            />
+          </div>
+          {syncHead && (
+            <>
+              <p className="text-sm text-slate-200">{syncHead.title}</p>
+              <p className="text-xs text-slate-400">{syncHead.detail}</p>
+            </>
+          )}
+          <div className="grid gap-2 text-xs text-slate-400 sm:grid-cols-2">
+            <p>
+              Son XML güncellemesi (panel):{" "}
+              <span className="text-slate-200">
+                {formatTrDate(syncSnapshot.lastXmlSyncAt)}
+              </span>
+            </p>
+            <p>
+              Son Trendyol senkronu:{" "}
+              <span className="text-slate-200">
+                {formatTrDate(syncSnapshot.lastMarketplaceSyncAt)}
+              </span>
+            </p>
+          </div>
+          {syncSnapshot.marketplaceSyncSource ? (
+            <p className="text-[11px] text-slate-500">
+              Kaynak: {syncSnapshot.marketplaceSyncSource}
+            </p>
+          ) : null}
+          {syncSnapshot.marketplaceSyncStatus?.toUpperCase() === "FAILED" &&
+          syncSnapshot.marketplaceSyncError ? (
+            <p className="rounded border border-red-900/50 bg-red-950/30 px-2 py-1.5 text-xs text-red-100/90">
+              Özet: Trendyol tarafı son işlemi kabul etmedi. Ürünü ve Trendyol panelini kontrol edin.
+            </p>
+          ) : null}
+        </div>
+      )}
+
       <div className="card space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
           Trendyol Eşleştirme
@@ -995,6 +1152,49 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
             }`}
           >
             <p>{publishFlash.text}</p>
+            {publishFlash.summary && (
+              <p className="mt-2 text-xs text-slate-300">
+                Özet:{" "}
+                <span className="text-emerald-300/90">
+                  {publishFlash.summary.success} başarılı
+                </span>
+                {" · "}
+                <span className="text-red-300/90">
+                  {publishFlash.summary.failed} başarısız
+                </span>
+                {" · "}
+                <span className="text-amber-200/90">
+                  {publishFlash.summary.pending} bekliyor
+                </span>
+                {" "}
+                (toplam {publishFlash.summary.total})
+              </p>
+            )}
+            {publishFlash.resultLines && publishFlash.resultLines.length > 0 && (
+              <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-slate-300">
+                {publishFlash.resultLines.map((line, i) => (
+                  <li key={i}>
+                    {line.status === "SUCCESS"
+                      ? "Yayınlandı"
+                      : line.status === "FAILED"
+                        ? "Hata aldı"
+                        : line.status === "PENDING"
+                          ? "Bekliyor"
+                          : line.status}
+                    {line.detail ? (
+                      <span
+                        className="block pl-4 text-slate-400"
+                        title={line.detail}
+                      >
+                        {line.detail.length > 160
+                          ? `${line.detail.slice(0, 160)}…`
+                          : line.detail}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
             {publishFlash.missing && publishFlash.missing.length > 0 && (
               <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs opacity-95">
                 {publishFlash.missing.map((m, i) => (
@@ -1002,6 +1202,49 @@ export function ProductTrendyolMappingSection({ productId }: Props) {
                 ))}
               </ul>
             )}
+          </div>
+        )}
+
+        {(lastPublishStatus ||
+          lastPublishAttemptAt ||
+          lastSuccessfulPublishAt ||
+          lastPublishBatchIdState) && (
+          <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-xs text-slate-300">
+            <p className="font-semibold text-slate-200">Son yayın durumu</p>
+            <p className="mt-1">
+              Durum:{" "}
+              <span className="text-slate-100">
+                {trLastPublishStatus(lastPublishStatus)}
+              </span>
+              {lastPublishErrorCode ? (
+                <span
+                  className="ml-2 cursor-help border-b border-dotted border-slate-500 text-slate-400"
+                  title={trPublishErrorHint(lastPublishErrorCode)}
+                >
+                  ({lastPublishErrorCode})
+                </span>
+              ) : null}
+            </p>
+            {lastPublishErrorMessage && lastPublishStatus?.toUpperCase() === "FAILED" ? (
+              <p className="mt-1 text-amber-100/90">{lastPublishErrorMessage}</p>
+            ) : null}
+            <p className="mt-1 text-slate-500">
+              Son deneme:{" "}
+              {lastPublishAttemptAt
+                ? new Date(lastPublishAttemptAt).toLocaleString("tr-TR")
+                : "—"}
+            </p>
+            <p className="text-slate-500">
+              Son başarılı yayın:{" "}
+              {lastSuccessfulPublishAt
+                ? new Date(lastSuccessfulPublishAt).toLocaleString("tr-TR")
+                : "—"}
+            </p>
+            {lastPublishBatchIdState ? (
+              <p className="mt-1 font-mono text-[11px] text-slate-500">
+                Son batch: {lastPublishBatchIdState}
+              </p>
+            ) : null}
           </div>
         )}
 

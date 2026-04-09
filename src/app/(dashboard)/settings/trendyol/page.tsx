@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendyolWebhooksPanel } from "@/components/trendyol/TrendyolWebhooksPanel";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 type ConnectionView = {
   id: string;
@@ -157,7 +158,9 @@ function TrendyolSettingsPageContent() {
       const res = await fetch("/api/integrations/trendyol/product-providers");
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Kargo firmaları alınamadı.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Kargo firmaları alınamadı." })
+        );
       }
       const list: CargoOption[] = Array.isArray(data.options)
         ? data.options
@@ -274,7 +277,9 @@ function TrendyolSettingsPageContent() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Kayıt başarısız.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Kayıt başarısız." })
+        );
       }
       if (data.connection) {
         setConnection(data.connection);
@@ -305,7 +310,9 @@ function TrendyolSettingsPageContent() {
       const res = await fetch("/api/integrations/trendyol/addresses");
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Adresler alınamadı.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Adresler alınamadı." })
+        );
       }
       const list = (data.addresses as AddressOption[]) ?? [];
       setAddressOptions(
@@ -361,7 +368,9 @@ function TrendyolSettingsPageContent() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || data?.message || "Test başarısız.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Test başarısız." })
+        );
       }
       if (data.lastTestAt) {
         setConnection((prev) =>

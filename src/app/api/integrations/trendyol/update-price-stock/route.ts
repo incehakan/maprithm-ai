@@ -10,6 +10,11 @@ import {
   resolveMarketplaceSalePrice
 } from "@/lib/trendyolMarketplaceCommercials";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import {
+  markMarketplaceSyncFailed,
+  markMarketplaceSyncSuccess
+} from "@/lib/xml-sync/marketplaceSyncState";
+import { MarketplaceSyncSource } from "@/lib/xml-sync/types";
 
 type Body = { productId?: string };
 
@@ -101,12 +106,20 @@ export async function POST(request: Request) {
   const apiResult = await trendyolPostJson<unknown>(ctx.userId, ctx.storeId, path, payload);
 
   if (!apiResult.ok) {
-    await prisma.productMarketplaceMapping.update({
-      where: { id: mapping.id },
+    await prisma.productMarketplaceMapping.updateMany({
+      where: { id: mapping.id, storeId: ctx.storeId },
       data: {
         lastErrorMessage: apiResult.message.slice(0, 2000),
         lastSyncAt: new Date()
       }
+    });
+    await markMarketplaceSyncFailed({
+      productId,
+      storeId: ctx.storeId,
+      source: MarketplaceSyncSource.MANUAL_PRICE_STOCK_UPDATE,
+      errorMessage: apiResult.message,
+      userId: ctx.userId,
+      membershipId: ctx.membershipId
     });
     await createActivityLog({
       userId: ctx.userId,
@@ -126,14 +139,22 @@ export async function POST(request: Request) {
   const batchRequestId = extractBatchRequestId(apiResult.data);
   const now = new Date();
 
-  await prisma.productMarketplaceMapping.update({
-    where: { id: mapping.id },
+  await prisma.productMarketplaceMapping.updateMany({
+    where: { id: mapping.id, storeId: ctx.storeId },
     data: {
       batchRequestId: batchRequestId ?? mapping.batchRequestId ?? null,
       publishStatus: "processing",
       lastSyncAt: now,
       lastErrorMessage: null
     }
+  });
+
+  await markMarketplaceSyncSuccess({
+    productId,
+    storeId: ctx.storeId,
+    source: MarketplaceSyncSource.MANUAL_PRICE_STOCK_UPDATE,
+    userId: ctx.userId,
+    membershipId: ctx.membershipId
   });
 
   if (batchRequestId) {

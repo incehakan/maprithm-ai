@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { createActivityLog } from "@/lib/activityLog";
+import { requireActiveStore } from "@/lib/requireActiveStore";
+import { secureProductUpdateMany } from "@/lib/security/storeScope";
 import {
   calculatePricing,
   validatePricingInput,
@@ -11,16 +12,21 @@ import {
 type Params = { params: { id: string } };
 
 export async function POST(request: Request, { params }: Params) {
-  const session = await auth();
-  if (!session?.user || !(session.user as any).id) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
-
-  const userId = (session.user as any).id as string;
+  const { userId, storeId } = ctx;
 
   try {
     const product = await prisma.product.findFirst({
-      where: { id: params.id, userId },
+      where: { id: params.id, userId, storeId },
       select: { id: true, name: true }
     });
 
@@ -67,18 +73,23 @@ export async function POST(request: Request, { params }: Params) {
     if (save === true) {
       try {
         // Maliyet (costPrice) yalnızca XML feed senkronu ile set edilir; satış/komisyon kaydı bunu ezmez.
-        await prisma.product.update({
-          where: { id: params.id },
-          data: {
-            commissionRate: input.commissionRate,
-            cargoCost: input.cargoCost,
-            vatRate: input.vatRate,
-            targetProfitRate: input.targetProfitRate
-          }
+        const u = await secureProductUpdateMany(params.id, storeId, {
+          commissionRate: input.commissionRate,
+          cargoCost: input.cargoCost,
+          vatRate: input.vatRate,
+          targetProfitRate: input.targetProfitRate
         });
+        if (u.count === 0) {
+          return NextResponse.json(
+            { error: "Ürün bulunamadı." },
+            { status: 404 }
+          );
+        }
 
         await createActivityLog({
           userId,
+          storeId,
+          membershipId: ctx.membershipId,
           action: "pricing_calculated",
           entityType: "product",
           entityId: params.id,
@@ -95,6 +106,8 @@ export async function POST(request: Request, { params }: Params) {
     } else {
       await createActivityLog({
         userId,
+        storeId,
+        membershipId: ctx.membershipId,
         action: "pricing_calculated",
         entityType: "product",
         entityId: params.id,

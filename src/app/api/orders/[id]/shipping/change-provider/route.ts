@@ -4,6 +4,7 @@ import { recordShippingOperationAudit } from "@/lib/orderShippingAudit";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import { resolveCarrierDisplayName } from "@/lib/trendyolCarrier";
 import { changeCargoProviderOnTrendyol } from "@/lib/trendyolShipping";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
 export async function POST(
   request: Request,
@@ -65,12 +66,9 @@ export async function POST(
     );
   }
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      shippingOperationStatus: "pending",
-      shippingOperationLastErrorMessage: null
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    shippingOperationStatus: "pending",
+    shippingOperationLastErrorMessage: null
   });
 
   const api = await changeCargoProviderOnTrendyol({
@@ -81,12 +79,9 @@ export async function POST(
   });
 
   if (!api.ok) {
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id },
-      data: {
-        shippingOperationStatus: "error",
-        shippingOperationLastErrorMessage: api.message.slice(0, 2000)
-      }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      shippingOperationStatus: "error",
+      shippingOperationLastErrorMessage: api.message.slice(0, 2000)
     });
     await recordShippingOperationAudit({
       storeId: ctx.storeId,
@@ -112,15 +107,12 @@ export async function POST(
     ref?.providerName ||
     resolveCarrierDisplayName(providerCode, null);
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      cargoProviderCode: providerCode,
-      cargoProviderName: displayName,
-      cargoProviderChangedAt: new Date(),
-      shippingOperationStatus: "success",
-      shippingOperationLastErrorMessage: null
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    cargoProviderCode: providerCode,
+    cargoProviderName: displayName,
+    cargoProviderChangedAt: new Date(),
+    shippingOperationStatus: "success",
+    shippingOperationLastErrorMessage: null
   });
 
   await recordShippingOperationAudit({

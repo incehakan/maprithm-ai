@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 import { sendInvoiceLinkForPackage } from "@/lib/trendyolOrderActions";
 
 export type InvoiceLinkPayload = {
@@ -86,21 +87,18 @@ export async function markInvoiceStatusOnOrder(params: {
     invoiceRawData?: Prisma.InputJsonValue | null;
   };
 }) {
-  return prisma.marketplaceOrder.update({
-    where: { id: params.orderId, storeId: params.storeId },
-    data: {
-      invoiceLink: params.data.invoiceLink,
-      invoiceNumber: params.data.invoiceNumber,
-      invoiceDateTime: params.data.invoiceDateTime,
-      invoiceSentAt: params.data.invoiceSentAt,
-      invoiceStatus: params.data.invoiceStatus,
-      invoiceLastErrorMessage: params.data.invoiceLastErrorMessage ?? null,
-      invoiceRawData:
-        params.data.invoiceRawData === undefined
-          ? undefined
-          : (params.data.invoiceRawData as Prisma.InputJsonValue),
-      lastFetchedAt: new Date(),
-      lastIngestSource: "operation"
-    }
+  return secureMarketplaceOrderUpdateMany(params.orderId, params.storeId, {
+    invoiceLink: params.data.invoiceLink,
+    invoiceNumber: params.data.invoiceNumber,
+    invoiceDateTime: params.data.invoiceDateTime,
+    invoiceSentAt: params.data.invoiceSentAt,
+    invoiceStatus: params.data.invoiceStatus,
+    invoiceLastErrorMessage: params.data.invoiceLastErrorMessage ?? null,
+    invoiceRawData:
+      params.data.invoiceRawData === undefined
+        ? undefined
+        : (params.data.invoiceRawData as Prisma.InputJsonValue),
+    lastFetchedAt: new Date(),
+    lastIngestSource: "operation"
   });
 }

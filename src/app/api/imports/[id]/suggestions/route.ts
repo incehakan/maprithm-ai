@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { isImportUsable } from "@/lib/importStatus";
+import { requireActiveStore } from "@/lib/requireActiveStore";
 
 type Params = { params: { id: string } };
-
-function getUserIdFromSession(session: {
-  user?: { id?: string } | null;
-} | null): string | null {
-  if (!session?.user?.id) return null;
-  return session.user.id;
-}
 
 /**
  * GET /api/imports/[id]/suggestions
@@ -19,14 +12,19 @@ function getUserIdFromSession(session: {
  * Query: importRowId (opsiyonel), limit (varsayılan 50), offset
  */
 export async function GET(request: Request, { params }: Params) {
-  const session = await auth();
-  const userId = getUserIdFromSession(session);
-  if (!userId) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
 
   const job = await prisma.importJob.findFirst({
-    where: { id: params.id, userId }
+    where: { id: params.id, userId: ctx.userId, storeId: ctx.storeId }
   });
 
   if (!job) {
@@ -49,7 +47,11 @@ export async function GET(request: Request, { params }: Params) {
 
   if (importRowId) {
     const row = await prisma.importRow.findFirst({
-      where: { id: importRowId, importJobId: params.id }
+      where: {
+        id: importRowId,
+        importJobId: params.id,
+        importJob: { storeId: ctx.storeId }
+      }
     });
     if (!row) {
       return NextResponse.json({ error: "Satır bu işe ait değil." }, { status: 404 });
@@ -57,7 +59,10 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   const where = {
-    importRow: { importJobId: params.id },
+    importRow: {
+      importJobId: params.id,
+      importJob: { storeId: ctx.storeId }
+    },
     ...(importRowId ? { importRowId } : {})
   };
 

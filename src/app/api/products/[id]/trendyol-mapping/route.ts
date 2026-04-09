@@ -39,6 +39,15 @@ function serializeMapping(m: Record<string, unknown>) {
     lastSyncAt: (m.lastSyncAt as Date | null)?.toISOString?.() ?? null,
     batchRequestId: (m.batchRequestId as string) ?? null,
     lastErrorMessage: (m.lastErrorMessage as string) ?? null,
+    lastPublishStatus: (m.lastPublishStatus as string) ?? null,
+    lastPublishErrorCode: (m.lastPublishErrorCode as string) ?? null,
+    lastPublishErrorMessage: (m.lastPublishErrorMessage as string) ?? null,
+    lastPublishAttemptAt:
+      (m.lastPublishAttemptAt as Date | null)?.toISOString?.() ?? null,
+    lastSuccessfulPublishAt:
+      (m.lastSuccessfulPublishAt as Date | null)?.toISOString?.() ?? null,
+    lastPublishBatchId: (m.lastPublishBatchId as string) ?? null,
+    lastPublishPayloadHash: (m.lastPublishPayloadHash as string) ?? null,
     mainImageUrl: (m.mainImageUrl as string) ?? null,
     imageUrls: (m.imageUrls as unknown) ?? null
   };
@@ -119,17 +128,16 @@ export async function GET(request: Request, { params }: Params) {
     imageUrls: ((product as any).imageUrls as unknown) ?? null
   };
 
-  const mappingRow = await prisma.productMarketplaceMapping.findUnique({
+  const mappingRow = await prisma.productMarketplaceMapping.findFirst({
     where: {
-      productId_platform: { productId: params.id, platform: "trendyol" }
+      productId: params.id,
+      platform: "trendyol",
+      storeId: ctx.storeId
     },
     include: {
       attributes: true
     }
   });
-  if (mappingRow && mappingRow.storeId !== ctx.storeId) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 403 });
-  }
 
   const mapping = mappingRow
     ? {
@@ -505,15 +513,12 @@ export async function POST(request: Request, { params }: Params) {
       });
     }
 
-    const full = await prisma.productMarketplaceMapping.findUnique({
-      where: { id: mapping.id },
+    const full = await prisma.productMarketplaceMapping.findFirst({
+      where: { id: mapping.id, storeId: ctx.storeId },
       include: { attributes: true }
     });
     if (!full) {
-      return NextResponse.json({ error: "Mapping bulunamadı." }, { status: 404 });
-    }
-    if (full.storeId !== ctx.storeId) {
-      return NextResponse.json({ error: "Yetkisiz." }, { status: 403 });
+      return NextResponse.json({ error: "Ürün bulunamadı." }, { status: 404 });
     }
 
     return NextResponse.json({

@@ -27,6 +27,8 @@ async function getProduct(id: string, userId: string, storeId: string) {
     { publishStatus: mappingPublishStatus }
   );
 
+  const hasTrendyolMapping = Boolean(product.marketplaceMappings[0]);
+
   return {
     id: product.id,
     name: product.name,
@@ -40,6 +42,12 @@ async function getProduct(id: string, userId: string, storeId: string) {
     lifecycleStatus: (product as any).lifecycleStatus ?? "draft",
     displayStatus,
     mappingPublishStatus,
+    hasTrendyolMapping,
+    lastXmlSyncAt: (p as any).lastXmlSyncAt?.toISOString?.() ?? null,
+    lastMarketplaceSyncAt: (p as any).lastMarketplaceSyncAt?.toISOString?.() ?? null,
+    marketplaceSyncStatus: (p as any).marketplaceSyncStatus ?? null,
+    marketplaceSyncError: (p as any).marketplaceSyncError ?? null,
+    marketplaceSyncSource: (p as any).marketplaceSyncSource ?? null,
     archivedAt: (product as any).archivedAt?.toISOString?.() ?? null,
     publishedAt: (product as any).publishedAt?.toISOString?.() ?? null,
     unpublishedAt: (product as any).unpublishedAt?.toISOString?.() ?? null,

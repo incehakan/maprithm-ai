@@ -1,0 +1,5 @@
+ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "lastXmlSyncAt" TIMESTAMP(3);
+ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "lastMarketplaceSyncAt" TIMESTAMP(3);
+ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "marketplaceSyncStatus" TEXT;
+ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "marketplaceSyncError" TEXT;
+ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "marketplaceSyncSource" TEXT;

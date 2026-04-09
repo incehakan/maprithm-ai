@@ -42,6 +42,12 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Ürün bulunamadı." }, { status: 404 });
   }
 
+  const p = product as Record<string, unknown>;
+  const mapping = await prisma.productMarketplaceMapping.findFirst({
+    where: { productId: params.id, storeId: ctx.storeId, platform: "trendyol" },
+    select: { id: true }
+  });
+
   return NextResponse.json({
     id: product.id,
     userId: product.userId,
@@ -53,7 +59,13 @@ export async function GET(_req: Request, { params }: Params) {
     imageUrls: (product as any).imageUrls ?? null,
     lifecycleStatus:
       (product as any).lifecycleStatus ?? resolveLifecycleStatus(product.status),
-    createdAt: product.createdAt.toISOString()
+    createdAt: product.createdAt.toISOString(),
+    hasTrendyolMapping: Boolean(mapping),
+    lastXmlSyncAt: (p.lastXmlSyncAt as Date | null)?.toISOString?.() ?? null,
+    lastMarketplaceSyncAt: (p.lastMarketplaceSyncAt as Date | null)?.toISOString?.() ?? null,
+    marketplaceSyncStatus: (p.marketplaceSyncStatus as string | null) ?? null,
+    marketplaceSyncError: (p.marketplaceSyncError as string | null) ?? null,
+    marketplaceSyncSource: (p.marketplaceSyncSource as string | null) ?? null
   });
 }
 

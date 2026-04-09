@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { runTrendyolProductPublishPipeline } from "@/lib/trendyolPublishProductPipeline";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import { applyPublishPipelineResultToProductMarketplaceSync } from "@/lib/xml-sync/applyManualProductMarketplaceSync";
+import { MarketplaceSyncSource } from "@/lib/xml-sync/types";
+import { jsonError } from "@/lib/errors/errorResponse";
+import { nextResponseFromPublishPipelineFailure } from "@/lib/errors/publishPipelineError";
 
 type Params = { params: { id: string } };
 
@@ -9,14 +13,19 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     ctx = await requireActiveStore();
   } catch (e: any) {
-    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
-    return NextResponse.json({ error: msg }, { status: 401 });
+    const noStore = e?.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
 
   try {
     requirePermission(ctx, "marketplace.publish");
   } catch {
-    return NextResponse.json({ error: "Bu işlem için yetkiniz yok." }, { status: 403 });
+    return jsonError("FORBIDDEN", {
+      userMessage: "Bu işlem için yetkiniz yok.",
+      httpStatus: 403
+    });
   }
 
   const result = await runTrendyolProductPublishPipeline({
@@ -27,22 +36,33 @@ export async function POST(_request: Request, { params }: Params) {
     contentRepublishMode: false
   });
 
+  await applyPublishPipelineResultToProductMarketplaceSync({
+    productId: params.id,
+    storeId: ctx.storeId,
+    userId: ctx.userId,
+    membershipId: ctx.membershipId,
+    result,
+    source: MarketplaceSyncSource.MANUAL_PUBLISH
+  });
+
   if (!result.ok) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: result.error,
-        missing: result.missing,
-        ready: result.missing ? false : undefined
-      },
-      { status: result.httpStatus }
-    );
+    return nextResponseFromPublishPipelineFailure(result, {
+      route: "POST /api/products/[id]/trendyol-publish",
+      userId: ctx.userId,
+      storeId: ctx.storeId,
+      productId: params.id
+    });
   }
 
   return NextResponse.json({
-    success: true,
+    accepted: true,
     publishStatus: result.publishStatus,
     batchRequestId: result.batchRequestId,
-    message: "Ürün Trendyol'a iletildi. Onay durumu için batch sonucunu kontrol edin."
+    message: result.message,
+    total: result.batch.total,
+    success: result.batch.success,
+    failed: result.batch.failed,
+    pending: result.batch.pending,
+    results: result.batch.results
   });
 }

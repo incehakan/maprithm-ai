@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
 import { formatApiErrorMessage } from "@/lib/apiErrorMessage";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 type Job = {
   id: string;
@@ -125,7 +126,9 @@ function ImportJobDetailPageContent() {
       const res = await fetch(`/api/imports/${id}?${qs}`);
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Yüklenemedi.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Yüklenemedi." })
+        );
       }
       setJob(data.job);
       setRows(data.rows ?? []);

@@ -202,7 +202,7 @@ export async function DELETE(_request: Request, { params }: Params) {
 
     if (importedProductIds.length > 0) {
       await anyPrisma.product.updateMany({
-        where: { id: { in: importedProductIds } },
+        where: { id: { in: importedProductIds }, storeId: ctx.storeId },
         data: {
           lifecycleStatus: "deleted",
           archivedAt: now

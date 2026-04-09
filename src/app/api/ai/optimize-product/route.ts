@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { openai } from "@/lib/openai";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
 import { createActivityLog } from "@/lib/activityLog";
+import { requireActiveStore } from "@/lib/requireActiveStore";
+import { secureProductUpdateMany } from "@/lib/security/storeScope";
+import {
+  createErrorResponse,
+  jsonError,
+  notFound
+} from "@/lib/errors/errorResponse";
 
 type OptimizeResult = {
   title: string;
@@ -75,12 +81,16 @@ Sadece geçerli JSON üret, başka metin ekleme.`;
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user || !(session.user as any).id) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const noStore = e instanceof Error && e.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
-
-  const userId = (session.user as any).id as string;
+  const { userId, storeId } = ctx;
 
   try {
     const body = await request.json().catch(() => null);
@@ -88,21 +98,21 @@ export async function POST(request: Request) {
     const apply = body?.apply === true;
 
     if (!productId || typeof productId !== "string") {
-      return NextResponse.json(
-        { error: "Ürün ID'si gerekli." },
-        { status: 400 }
-      );
+      return jsonError("VALIDATION_ERROR", {
+        userMessage: "Ürün seçimi gerekli.",
+        field: "productId",
+        httpStatus: 400
+      });
     }
 
     const product = await prisma.product.findFirst({
-      where: { id: productId, userId }
+      where: { id: productId, userId, storeId }
     });
 
     if (!product) {
-      return NextResponse.json(
-        { error: "Ürün bulunamadı." },
-        { status: 404 }
-      );
+      return notFound("NOT_FOUND", {
+        userMessage: "Ürün bulunamadı."
+      });
     }
 
     let optimized: OptimizeResult;
@@ -125,18 +135,20 @@ export async function POST(request: Request) {
           ? optimized.tags.join(", ")
           : product.tags;
 
-      await prisma.product.update({
-        where: { id: productId },
-        data: {
-          name: optimized.title,
-          description: optimized.description,
-          seoDescription: optimized.seoDescription,
-          tags: tagsStr
-        }
+      const u = await secureProductUpdateMany(productId, storeId, {
+        name: optimized.title,
+        description: optimized.description,
+        seoDescription: optimized.seoDescription,
+        tags: tagsStr
       });
+      if (u.count === 0) {
+        return notFound("NOT_FOUND", { userMessage: "Ürün bulunamadı." });
+      }
 
       await createActivityLog({
         userId,
+        storeId,
+        membershipId: ctx.membershipId,
         action: "ai_optimize_single",
         entityType: "product",
         entityId: productId,
@@ -166,9 +178,8 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Optimize product error:", error);
-    return NextResponse.json(
-      { error: "Optimizasyon işlenirken hata oluştu." },
-      { status: 500 }
-    );
+    return createErrorResponse(error, {
+      route: "POST /api/ai/optimize-product"
+    });
   }
 }

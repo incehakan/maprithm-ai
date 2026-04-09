@@ -120,9 +120,9 @@ export async function POST(request: Request, { params }: Params) {
       continue;
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.productMarketplaceMapping.update({
-        where: { id: product.mappingId },
+    const { mu, pu } = await prisma.$transaction(async (tx) => {
+      const mu = await tx.productMarketplaceMapping.updateMany({
+        where: { id: product.mappingId, storeId: ctx.storeId },
         data: {
           publishStatus: "archived",
           archivedAt: now,
@@ -130,14 +130,23 @@ export async function POST(request: Request, { params }: Params) {
           lastErrorMessage: null
         }
       });
-      await tx.product.update({
-        where: { id: product.id },
+      const pu = await tx.product.updateMany({
+        where: { id: product.id, storeId: ctx.storeId },
         data: {
           lifecycleStatus: "archived",
           archivedAt: now
         }
       });
+      return { mu, pu };
     });
+    if (mu.count === 0 || pu.count === 0) {
+      results.push({
+        productId: product.id,
+        ok: false,
+        message: "Kayıt güncellenemedi."
+      });
+      continue;
+    }
 
     await createActivityLog({
       userId: ctx.userId,

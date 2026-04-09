@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
 import { formatApiErrorMessage } from "@/lib/apiErrorMessage";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 type SuggestedAttr = {
   id: string;
@@ -110,7 +111,9 @@ function ImportTrendyolSuggestionsPageContent() {
       const res = await fetch(`/api/imports/${jobId}/trendyol-suggestions`);
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Yüklenemedi.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Yüklenemedi." })
+        );
       }
       setRawRows(data.rows ?? []);
       setTruncated(Boolean(data.truncated));

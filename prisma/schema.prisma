@@ -459,6 +459,15 @@ model Product {
   priceHash      String?
   stockHash      String?
 
+  /// Son XML feed ile panel (DB) güncellemesi
+  lastXmlSyncAt  DateTime?
+  /// Son Trendyol / marketplace ile hizalama (istek veya batch sonucu)
+  lastMarketplaceSyncAt DateTime?
+  /// SYNCED | FAILED | PENDING | NOT_APPLICABLE — panel vs marketplace özeti
+  marketplaceSyncStatus   String?
+  marketplaceSyncError    String?
+  marketplaceSyncSource   String?
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -915,6 +924,16 @@ model ProductMarketplaceMapping {
   lastSyncAt          DateTime?
   batchRequestId      String?
   lastErrorMessage    String?
+
+  /// SUCCESS | FAILED | PENDING — son Trendyol publish denemesinin özeti (batch HTTP + senkron)
+  lastPublishStatus         String?
+  lastPublishErrorCode      String?
+  lastPublishErrorMessage   String?
+  lastPublishAttemptAt      DateTime?
+  lastSuccessfulPublishAt   DateTime?
+  lastPublishBatchId        String?
+  lastPublishPayloadHash    String?
+
   mainImageUrl        String?
   imageUrls           Json?
 

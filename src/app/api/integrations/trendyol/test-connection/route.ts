@@ -4,6 +4,7 @@ import { decryptSecret } from "@/lib/secretCrypto";
 import { testTrendyolPartnerConnection } from "@/lib/trendyolPartnerApi";
 import { createActivityLog } from "@/lib/activityLog";
 import { requireActiveStore } from "@/lib/requireActiveStore";
+import { secureMarketplaceConnectionUpdateMany } from "@/lib/security/storeScope";
 
 function resolveClientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for");
@@ -115,9 +116,11 @@ export async function POST(request: Request) {
       agentName
     });
 
-    const updated = await anyPrisma.marketplaceConnection.update({
-      where: { id: row.id },
-      data: { lastTestAt: new Date() }
+    await secureMarketplaceConnectionUpdateMany(row.id, ctx.storeId, {
+      lastTestAt: new Date()
+    });
+    const updated = await prisma.marketplaceConnection.findFirst({
+      where: { id: row.id, storeId: ctx.storeId }
     });
 
     await createActivityLog({
@@ -136,7 +139,7 @@ export async function POST(request: Request) {
       success: result.ok,
       status: result.status,
       message: result.message,
-      lastTestAt: updated.lastTestAt?.toISOString() ?? null
+      lastTestAt: updated?.lastTestAt?.toISOString() ?? null
     });
   } catch (error) {
     console.error("Trendyol test-connection error:", error);

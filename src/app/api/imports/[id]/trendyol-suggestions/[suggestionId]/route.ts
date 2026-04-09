@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+import { requireActiveStore } from "@/lib/requireActiveStore";
 import { loadCategoryAttributeDefs } from "@/lib/importTrendyolAttributeSuggestionAi";
 import type { CategoryAttributeDef } from "@/lib/importTrendyolAttributeSuggestionAi";
 import {
@@ -18,13 +18,6 @@ import {
 import { isImportUsable } from "@/lib/importStatus";
 
 type Params = { params: { id: string; suggestionId: string } };
-
-function getUserIdFromSession(session: {
-  user?: { id?: string } | null;
-} | null): string | null {
-  if (!session?.user?.id) return null;
-  return session.user.id;
-}
 
 type CategoryAttrWithValues = Prisma.TrendyolCategoryAttributeGetPayload<{
   include: { values: true };
@@ -51,14 +44,19 @@ function serializeCategoryAttributes(attrs: CategoryAttrWithValues) {
  * Query: previewCategoryId — kayıtlı kategori yerine bu id için TrendyolCategoryAttribute yükler.
  */
 export async function GET(request: Request, { params }: Params) {
-  const session = await auth();
-  const userId = getUserIdFromSession(session);
-  if (!userId) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
 
   const job = await prisma.importJob.findFirst({
-    where: { id: params.id, userId }
+    where: { id: params.id, userId: ctx.userId, storeId: ctx.storeId }
   });
   if (!job) {
     return NextResponse.json({ error: "İçe aktarma bulunamadı." }, { status: 404 });
@@ -74,7 +72,10 @@ export async function GET(request: Request, { params }: Params) {
     where: {
       id: params.suggestionId,
       platform: "trendyol",
-      importRow: { importJobId: params.id }
+      importRow: {
+        importJobId: params.id,
+        importJob: { storeId: ctx.storeId }
+      }
     },
     include: {
       importRow: true,
@@ -235,14 +236,19 @@ function resolveValueForDef(
  * PATCH — Öneriyi güncelle; kategori + özellikler; status approved / rejected / suggested.
  */
 export async function PATCH(request: Request, { params }: Params) {
-  const session = await auth();
-  const userId = getUserIdFromSession(session);
-  if (!userId) {
-    return NextResponse.json({ error: "Yetkisiz." }, { status: 401 });
+  let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
+    return NextResponse.json({ error: msg }, { status: 401 });
   }
 
   const job = await prisma.importJob.findFirst({
-    where: { id: params.id, userId }
+    where: { id: params.id, userId: ctx.userId, storeId: ctx.storeId }
   });
   if (!job) {
     return NextResponse.json({ error: "İçe aktarma bulunamadı." }, { status: 404 });
@@ -252,7 +258,10 @@ export async function PATCH(request: Request, { params }: Params) {
     where: {
       id: params.suggestionId,
       platform: "trendyol",
-      importRow: { importJobId: params.id }
+      importRow: {
+        importJobId: params.id,
+        importJob: { storeId: ctx.storeId }
+      }
     },
     include: { suggestedAttributes: true }
   });
@@ -426,10 +435,20 @@ export async function PATCH(request: Request, { params }: Params) {
 
   const nextStatus = statusIn ?? existing.status;
 
+  const suggestionWriteWhere = {
+    id: existing.id,
+    importRow: {
+      importJob: {
+        id: params.id,
+        storeId: ctx.storeId
+      }
+    }
+  };
+
   try {
     await prisma.$transaction(async (tx) => {
-      await tx.importRowMarketplaceSuggestion.update({
-        where: { id: existing.id },
+      const u = await tx.importRowMarketplaceSuggestion.updateMany({
+        where: suggestionWriteWhere,
         data: {
           suggestedBrandId,
           suggestedBrandName,
@@ -440,6 +459,9 @@ export async function PATCH(request: Request, { params }: Params) {
           updatedAt: new Date()
         }
       });
+      if (u.count === 0) {
+        throw new Error("SUGGESTION_UPDATE_FAILED");
+      }
 
       await tx.importRowMarketplaceSuggestedAttribute.deleteMany({
         where: { suggestionId: existing.id }
@@ -461,11 +483,14 @@ export async function PATCH(request: Request, { params }: Params) {
     });
   } catch (e) {
     console.error("trendyol-suggestion PATCH:", e);
+    if (e instanceof Error && e.message === "SUGGESTION_UPDATE_FAILED") {
+      return NextResponse.json({ error: "Öneri bulunamadı." }, { status: 404 });
+    }
     return NextResponse.json({ error: "Kayıt sırasında hata oluştu." }, { status: 500 });
   }
 
   const fresh = await prisma.importRowMarketplaceSuggestion.findFirst({
-    where: { id: existing.id },
+    where: suggestionWriteWhere,
     include: {
       importRow: true,
       suggestedAttributes: {

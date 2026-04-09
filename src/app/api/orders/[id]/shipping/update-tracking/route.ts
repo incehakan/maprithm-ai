@@ -9,6 +9,7 @@ import {
   validateTrackingPayload
 } from "@/lib/trendyolShipping";
 import { logger } from "@/lib/logger";
+import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
 export async function POST(
   request: Request,
@@ -48,12 +49,9 @@ export async function POST(
     );
   }
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      shippingOperationStatus: "pending",
-      shippingOperationLastErrorMessage: null
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    shippingOperationStatus: "pending",
+    shippingOperationLastErrorMessage: null
   });
 
   const api = await updateTrackingNumberOnTrendyol({
@@ -72,12 +70,9 @@ export async function POST(
       shipmentPackageId: pkg,
       error: api.message
     });
-    await prisma.marketplaceOrder.update({
-      where: { id: order.id },
-      data: {
-        shippingOperationStatus: "error",
-        shippingOperationLastErrorMessage: api.message.slice(0, 2000)
-      }
+    await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+      shippingOperationStatus: "error",
+      shippingOperationLastErrorMessage: api.message.slice(0, 2000)
     });
     await recordShippingOperationAudit({
       storeId: ctx.storeId,
@@ -102,18 +97,15 @@ export async function POST(
     displayName
   );
 
-  await prisma.marketplaceOrder.update({
-    where: { id: order.id },
-    data: {
-      cargoTrackingNumber: v.value.trackingNumber,
-      cargoSenderNumber: v.value.cargoSenderNumber,
-      cargoProviderCode: v.value.providerCode,
-      cargoProviderName: displayName,
-      cargoTrackingLink: link ?? order.cargoTrackingLink,
-      trackingUpdatedAt: new Date(),
-      shippingOperationStatus: "success",
-      shippingOperationLastErrorMessage: null
-    }
+  await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
+    cargoTrackingNumber: v.value.trackingNumber,
+    cargoSenderNumber: v.value.cargoSenderNumber,
+    cargoProviderCode: v.value.providerCode,
+    cargoProviderName: displayName,
+    cargoTrackingLink: link ?? order.cargoTrackingLink,
+    trackingUpdatedAt: new Date(),
+    shippingOperationStatus: "success",
+    shippingOperationLastErrorMessage: null
   });
 
   await recordShippingOperationAudit({

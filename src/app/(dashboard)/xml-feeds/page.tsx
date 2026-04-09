@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
 import { safeParseJsonResponse } from "@/lib/safeParseJsonResponse";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 type XmlFeed = {
   id: string;
@@ -62,7 +63,9 @@ function XmlFeedsPageContent() {
         res
       );
       if (!res.ok) {
-        throw new Error(data?.error || data?.message || "XML feed listesi alınamadı.");
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "XML feed listesi alınamadı." })
+        );
       }
       setFeeds(data?.feeds ?? []);
     } catch (e) {
@@ -93,7 +96,10 @@ function XmlFeedsPageContent() {
         })
       });
       const data = await safeParseJsonResponse<{ message?: string; error?: string }>(res);
-      if (!res.ok) throw new Error(data?.error || data?.message || "XML feed kaydı oluşturulamadı.");
+      if (!res.ok)
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "XML feed kaydı oluşturulamadı." })
+        );
       setName("");
       setFeedUrl("");
       setSyncIntervalMinutes(60);
@@ -117,7 +123,10 @@ function XmlFeedsPageContent() {
         body: JSON.stringify({ isActive: !feed.isActive })
       });
       const data = await safeParseJsonResponse<{ message?: string; error?: string }>(res);
-      if (!res.ok) throw new Error(data?.error || data?.message || "Durum güncellenemedi.");
+      if (!res.ok)
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Durum güncellenemedi." })
+        );
       await loadFeeds();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Durum güncellenemedi.");
@@ -132,7 +141,10 @@ function XmlFeedsPageContent() {
     try {
       const res = await fetch(`/api/xml-feeds/${feedId}/sync-now`, { method: "POST" });
       const data = await safeParseJsonResponse<{ message?: string; error?: string }>(res);
-      if (!res.ok) throw new Error(data?.error || data?.message || "Senkron başarısız.");
+      if (!res.ok)
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "Senkron başarısız." })
+        );
       await loadFeeds();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Senkron başarısız.");

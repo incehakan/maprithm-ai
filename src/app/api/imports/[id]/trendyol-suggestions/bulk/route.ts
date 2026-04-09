@@ -97,7 +97,13 @@ export async function POST(request: Request, { params }: Params) {
 
   if (action === "approve") {
     await prisma.importRowMarketplaceSuggestion.updateMany({
-      where: { id: { in: suggestions.map((s) => s.id) } },
+      where: {
+        id: { in: suggestions.map((s) => s.id) },
+        importRow: {
+          importJobId: params.id,
+          importJob: { storeId: ctx.storeId }
+        }
+      },
       data: { status: "approved" }
     });
     for (const s of suggestions) {
@@ -105,7 +111,13 @@ export async function POST(request: Request, { params }: Params) {
     }
   } else if (action === "reject") {
     await prisma.importRowMarketplaceSuggestion.updateMany({
-      where: { id: { in: suggestions.map((s) => s.id) } },
+      where: {
+        id: { in: suggestions.map((s) => s.id) },
+        importRow: {
+          importJobId: params.id,
+          importJob: { storeId: ctx.storeId }
+        }
+      },
       data: { status: "rejected" }
     });
     for (const s of suggestions) {

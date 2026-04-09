@@ -8,6 +8,7 @@ import {
   type ParsedBatchItem,
   type ParsedBatchResult
 } from "@/lib/trendyolBatchRequestResult";
+import { TrendyolPublishRuntimeErrorCode } from "@/lib/validation/trendyolPublishErrorCodes";
 
 export type MappingSyncRow = {
   mappingId: string;
@@ -250,11 +251,16 @@ export async function syncTrendyolBatchResultForUser(
           ? "Toplu işlem tamamlandı ancak yanıtta bu ürün satırı bulunamadı (barkod / stok kodu eşleşmedi)."
           : "Batch yanıtında bu ürün satırı henüz yok veya işlem sürüyor; daha sonra tekrar deneyin.";
         if (batchCompleted) {
-          await tx.productMarketplaceMapping.update({
-            where: { id: m.id },
+          await tx.productMarketplaceMapping.updateMany({
+            where: { id: m.id, storeId },
             data: {
               publishStatus: "failed",
-              lastErrorMessage: trimMessage(msg)
+              lastErrorMessage: trimMessage(msg),
+              lastPublishStatus: "FAILED",
+              lastPublishErrorCode:
+                TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_BARCODE_MATCH_FAILED,
+              lastPublishErrorMessage: trimMessage(msg),
+              lastSyncAt: new Date()
             }
           });
         }
@@ -302,36 +308,94 @@ export async function syncTrendyolBatchResultForUser(
           : "İşlem durumu net değil; tekrar kontrol edin.";
       }
 
-      await tx.productMarketplaceMapping.update({
-        where: { id: m.id },
+      const syncNow = new Date();
+      let lastPublishStatus: "SUCCESS" | "FAILED" | "PENDING" = "PENDING";
+      let lastPublishErrorCode: string | null = null;
+      let lastPublishErrorMessage: string | null = null;
+      let lastSuccessfulPublishAt: Date | null | undefined = undefined;
+
+      if (it.status === "SUCCESS") {
+        lastPublishStatus = "SUCCESS";
+        lastPublishErrorCode = null;
+        lastPublishErrorMessage = null;
+        if (
+          newStatus === "published" &&
+          !isPriceStockBatch &&
+          !isArchiveBatch
+        ) {
+          lastSuccessfulPublishAt = syncNow;
+        }
+      } else if (it.status === "FAILED") {
+        lastPublishStatus = "FAILED";
+        lastPublishErrorCode = TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_ITEM_FAILED;
+        lastPublishErrorMessage = err != null ? trimMessage(err) : null;
+      } else if (it.status === "IN_PROGRESS") {
+        lastPublishStatus = "PENDING";
+      } else {
+        lastPublishStatus = batchCompleted ? "FAILED" : "PENDING";
+        if (batchCompleted) {
+          lastPublishErrorCode =
+            TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_ITEM_FAILED;
+          lastPublishErrorMessage = err != null ? trimMessage(err) : null;
+        }
+      }
+
+      await tx.productMarketplaceMapping.updateMany({
+        where: { id: m.id, storeId },
         data: {
           publishStatus: newStatus,
           lastErrorMessage: err != null ? trimMessage(err) : null,
-          lastSyncAt: new Date(),
-          ...(newStatus === "archived" ? { archivedAt: new Date() } : {}),
+          lastSyncAt: syncNow,
+          lastPublishStatus,
+          lastPublishErrorCode,
+          lastPublishErrorMessage,
+          ...(lastSuccessfulPublishAt ? { lastSuccessfulPublishAt } : {}),
+          ...(newStatus === "archived" ? { archivedAt: syncNow } : {}),
           ...(newStatus === "published" ? { archivedAt: null, unpublishedAt: null } : {}),
           ...(newStatus === "published" && !isPriceStockBatch
-            ? { publishedAt: new Date() }
+            ? { publishedAt: syncNow }
             : {})
         }
       });
 
       if (newStatus === "archived") {
-        await tx.product.update({
-          where: { id: m.product.id },
+        await tx.product.updateMany({
+          where: { id: m.product.id, storeId },
           data: {
             lifecycleStatus: "archived",
-            archivedAt: new Date()
+            archivedAt: syncNow
           }
         });
       } else if (newStatus === "published") {
-        await tx.product.update({
-          where: { id: m.product.id },
+        await tx.product.updateMany({
+          where: { id: m.product.id, storeId },
           data: {
             lifecycleStatus: "published",
-            publishedAt: new Date(),
+            publishedAt: syncNow,
             archivedAt: null,
             unpublishedAt: null
+          }
+        });
+      }
+
+      if (
+        it.status === "SUCCESS" &&
+        (isPriceStockBatch || (!isArchiveBatch && newStatus === "published"))
+      ) {
+        await tx.product.updateMany({
+          where: { id: m.product.id, storeId },
+          data: {
+            marketplaceSyncStatus: "SYNCED",
+            lastMarketplaceSyncAt: syncNow,
+            marketplaceSyncError: null
+          }
+        });
+      } else if (it.status === "FAILED") {
+        await tx.product.updateMany({
+          where: { id: m.product.id, storeId },
+          data: {
+            marketplaceSyncStatus: "FAILED",
+            marketplaceSyncError: err != null ? trimMessage(err) : "Trendyol işlemi reddedildi."
           }
         });
       }

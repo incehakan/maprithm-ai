@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ProductMarketplaceSyncChip } from "@/components/products/ProductMarketplaceSyncChip";
+import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
 
 export type ProductRow = {
   id: string;
@@ -12,6 +14,8 @@ export type ProductRow = {
   stock: number;
   lifecycleStatus: string;
   mappingPublishStatus: string | null;
+  hasTrendyolMapping: boolean;
+  marketplaceSyncStatus: string | null;
   displayStatus: "active" | "out_of_stock" | "archived";
   createdAt: string;
 };
@@ -74,12 +78,12 @@ export function ProductsTable({ products }: ProductsTableProps) {
 
       const data = (await res.json().catch(() => null)) as
         | OptimizeResponse
-        | { error?: string };
+        | Record<string, unknown>;
 
       if (!res.ok) {
         setMessage({
           type: "error",
-          text: (data as { error?: string }).error || "İstek başarısız."
+          text: resolveUserErrorMessage(data, { fallback: "İstek başarısız." })
         });
         setLoading(false);
         return;
@@ -134,10 +138,13 @@ export function ProductsTable({ products }: ProductsTableProps) {
       });
 
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        throw new Error(data?.error || "CSV dışa aktarma başarısız.");
+        const data = (await res.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        throw new Error(
+          resolveUserErrorMessage(data, { fallback: "CSV dışa aktarma başarısız." })
+        );
       }
 
       const blob = await res.blob();
@@ -183,11 +190,14 @@ export function ProductsTable({ products }: ProductsTableProps) {
       });
 
       if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { error?: string }
-          | null;
+        const data = (await res.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
         throw new Error(
-          data?.error || "Trendyol CSV dışa aktarma başarısız."
+          resolveUserErrorMessage(data, {
+            fallback: "Trendyol CSV dışa aktarma başarısız."
+          })
         );
       }
 
@@ -322,6 +332,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
               </th>
               <th className="px-4 py-3 text-left">Ürün</th>
               <th className="px-4 py-3 text-left">Durum</th>
+              <th className="px-4 py-3 text-left">Senkron</th>
               <th className="px-4 py-3 text-right">Fiyat</th>
               <th className="px-4 py-3 text-right">Stok</th>
               <th className="px-4 py-3 text-right">Toplam</th>
@@ -332,7 +343,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
             {products.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-6 text-center text-slate-400"
                 >
                   Henüz ürün eklenmemiş.
@@ -374,6 +385,12 @@ export function ProductsTable({ products }: ProductsTableProps) {
                   >
                     {DISPLAY_LABEL[p.displayStatus] ?? "Aktif"}
                   </span>
+                </td>
+                <td className="px-4 py-3">
+                  <ProductMarketplaceSyncChip
+                    marketplaceSyncStatus={p.marketplaceSyncStatus}
+                    hasTrendyolMapping={p.hasTrendyolMapping}
+                  />
                 </td>
                 <td className="px-4 py-3 text-right">
                   ₺{p.price.toLocaleString("tr-TR")}

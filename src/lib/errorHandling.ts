@@ -1,5 +1,7 @@
 import { logger, type LogContext } from "@/lib/logger";
 
+/** Yeni API hata gövdesi ve katalog için bkz. `src/lib/errors/`. */
+
 export type ApiErrorPayload = {
   success: false;
   error: string;

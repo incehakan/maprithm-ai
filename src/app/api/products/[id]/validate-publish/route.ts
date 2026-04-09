@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireActiveStore } from "@/lib/requireActiveStore";
+import { jsonError } from "@/lib/errors/errorResponse";
 import { validateProductForTrendyolPublish } from "@/lib/validation/prePublishValidator";
 
 type Params = { params: { id: string } };
@@ -12,11 +13,13 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     ctx = await requireActiveStore();
   } catch (e: unknown) {
-    const msg =
-      e && typeof e === "object" && (e as { message?: string }).message === "NO_ACTIVE_STORE"
-        ? "Aktif mağaza yok."
-        : "Yetkisiz.";
-    return NextResponse.json({ error: msg }, { status: 401 });
+    const noStore =
+      e &&
+      typeof e === "object" &&
+      (e as { message?: string }).message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
 
   const result = await validateProductForTrendyolPublish(params.id, {

@@ -73,6 +73,8 @@ async function getProducts(
     stock: p.stock,
     lifecycleStatus: (p as any).lifecycleStatus ?? "draft",
     mappingPublishStatus: p.marketplaceMappings[0]?.publishStatus ?? null,
+    hasTrendyolMapping: Boolean(p.marketplaceMappings[0]),
+    marketplaceSyncStatus: (p as any).marketplaceSyncStatus ?? null,
     displayStatus: getProductDisplayStatus(
       { stock: p.stock, lifecycleStatus: (p as any).lifecycleStatus ?? "draft" },
       { publishStatus: p.marketplaceMappings[0]?.publishStatus ?? null }

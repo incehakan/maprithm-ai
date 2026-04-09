@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createActivityLog } from "@/lib/activityLog";
 import { getUserSettings } from "@/lib/userSettings";
@@ -14,15 +15,39 @@ import {
   updateProductOnTrendyol
 } from "@/lib/trendyolProductMutations";
 import type { ProductMarketplaceMapping } from "@prisma/client";
+import { buildPublishBatchResult } from "@/lib/trendyol/publish/buildPublishBatchResult";
+import { createPublishPayloadHash } from "@/lib/trendyol/publish/createPublishPayloadHash";
+import { mapTrendyolErrorToInternalCode } from "@/lib/trendyol/publish/mapTrendyolErrorToInternalCode";
+import { parseTrendyolPublishResponse } from "@/lib/trendyol/publish/parseTrendyolPublishResponse";
+import {
+  markPublishAttemptPending,
+  persistPublishItemResults,
+  persistPublishValidationFailure
+} from "@/lib/trendyol/publish/persistPublishItemResults";
+import type { PublishBatchResult, PublishItemResult } from "@/lib/trendyol/publish/types";
+import {
+  TrendyolPrePublishErrorCode,
+  TrendyolPublishRuntimeErrorCode
+} from "@/lib/validation/trendyolPublishErrorCodes";
+import { secureProductMarketplaceMappingUpdateMany } from "@/lib/security/storeScope";
 
 export type TrendyolPublishPipelineResult =
-  | { ok: true; batchRequestId: string | null; publishStatus: string }
+  | {
+      ok: true;
+      batchRequestId: string | null;
+      publishStatus: string;
+      batch: PublishBatchResult;
+      message: string;
+    }
   | {
       ok: false;
       error: string;
       httpStatus: number;
       missing?: string[];
+      batch?: PublishBatchResult;
     };
+
+type TrendyolPublishPipelineFailure = Extract<TrendyolPublishPipelineResult, { ok: false }>;
 
 type MappingWithAttrs = ProductMarketplaceMapping & {
   attributes: Array<{
@@ -43,7 +68,7 @@ function allowPublishGate(
   product: { lifecycleStatus: string | null; stock: number },
   mapping: MappingWithAttrs,
   contentRepublishMode: boolean
-): TrendyolPublishPipelineResult | null {
+): TrendyolPublishPipelineFailure | null {
   const lifecycle = String(product.lifecycleStatus ?? "").toLowerCase();
   const mapStatus = String(mapping.publishStatus ?? "").toLowerCase();
 
@@ -123,42 +148,140 @@ export async function runTrendyolProductPublishPipeline(input: {
   }
 
   const gate = allowPublishGate(product, mappingRow as MappingWithAttrs, contentRepublishMode);
-  if (gate) return gate;
+  if (gate) {
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_GATE_BLOCKED,
+      message: gate.error
+    });
+    return {
+      ok: false,
+      httpStatus: gate.httpStatus,
+      error: gate.error,
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_GATE_BLOCKED,
+          errorMessage: gate.error
+        }
+      ])
+    };
+  }
 
   const conn = await prisma.marketplaceConnection.findUnique({
     where: { storeId_platform: { storeId: input.storeId, platform: "trendyol" } }
   });
 
   if (!conn?.isActive) {
-    return { ok: false, httpStatus: 400, error: "Aktif Trendyol bağlantısı yok." };
+    const msg = "Aktif Trendyol bağlantısı yok.";
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPrePublishErrorCode.TRENDYOL_CONNECTION_INACTIVE,
+      message: msg
+    });
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: msg,
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPrePublishErrorCode.TRENDYOL_CONNECTION_INACTIVE,
+          errorMessage: msg
+        }
+      ])
+    };
   }
 
   const sellerId = String(conn.sellerId).trim();
   if (!sellerId) {
-    return { ok: false, httpStatus: 400, error: "Satıcı ID (Seller ID) tanımlı değil." };
+    const msg = "Satıcı ID (Seller ID) tanımlı değil.";
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPrePublishErrorCode.TRENDYOL_SELLER_ID_MISSING,
+      message: msg
+    });
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: msg,
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPrePublishErrorCode.TRENDYOL_SELLER_ID_MISSING,
+          errorMessage: msg
+        }
+      ])
+    };
   }
 
   const shipmentAddressId = conn.shipmentAddressId?.trim();
   const returnAddressId = conn.returnAddressId?.trim();
   if (!shipmentAddressId || !returnAddressId) {
+    const msg = "Trendyol adresi seçilmeden ürün gönderilemez.";
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPrePublishErrorCode.TRENDYOL_ADDRESSES_MISSING,
+      message: msg
+    });
     return {
       ok: false,
       httpStatus: 400,
-      error: "Trendyol adresi seçilmeden ürün gönderilemez.",
+      error: msg,
       missing: [
         ...(shipmentAddressId ? [] : ["Gönderim (sevkiyat) adresi"]),
         ...(returnAddressId ? [] : ["İade adresi"])
-      ]
+      ],
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPrePublishErrorCode.TRENDYOL_ADDRESSES_MISSING,
+          errorMessage: msg
+        }
+      ])
     };
   }
 
   const categoryId = mappingRow.trendyolCategoryId as number | null;
   if (categoryId == null) {
+    const msg = "Trendyol kategori seçilmemiş.";
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPrePublishErrorCode.TRENDYOL_CATEGORY_MISSING,
+      message: msg
+    });
     return {
       ok: false,
       httpStatus: 400,
-      error: "Trendyol kategori seçilmemiş.",
-      missing: ["Trendyol kategori"]
+      error: msg,
+      missing: ["Trendyol kategori"],
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPrePublishErrorCode.TRENDYOL_CATEGORY_MISSING,
+          errorMessage: msg
+        }
+      ])
     };
   }
 
@@ -240,11 +363,28 @@ export async function runTrendyolProductPublishPipeline(input: {
   );
 
   if (!publishCheck.ready) {
+    const msg = `Yayına hazırlık kontrolü başarısız. ${publishCheck.missing.join(" · ")}`;
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_VALIDATION_FAILED,
+      message: msg
+    });
     return {
       ok: false,
       httpStatus: 400,
       error: "Yayına hazırlık kontrolü başarısız.",
-      missing: publishCheck.missing
+      missing: publishCheck.missing,
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_VALIDATION_FAILED,
+          errorMessage: msg
+        }
+      ])
     };
   }
 
@@ -290,21 +430,50 @@ export async function runTrendyolProductPublishPipeline(input: {
     });
   } catch (e) {
     console.error("buildTrendyolCreateProductBody error:", e);
+    const msg = e instanceof Error ? e.message : "Payload oluşturulamadı.";
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_PAYLOAD_BUILD_FAILED,
+      message: msg
+    });
     return {
       ok: false,
       httpStatus: 400,
-      error: e instanceof Error ? e.message : "Payload oluşturulamadı."
+      error: msg,
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPublishRuntimeErrorCode.TRENDYOL_PUBLISH_PAYLOAD_BUILD_FAILED,
+          errorMessage: msg
+        }
+      ])
     };
   }
 
-  await prisma.productMarketplaceMapping.update({
-    where: { id: mappingRow.id },
-    data: {
-      publishStatus: "processing",
-      lastErrorMessage: null,
-      lastSyncAt: new Date()
-    }
+  const correlationBatchId = randomUUID();
+  const payloadHash = createPublishPayloadHash(body);
+  await markPublishAttemptPending({
+    storeId: input.storeId,
+    mappingId: mappingRow.id,
+    payloadHash,
+    correlationBatchId
   });
+
+  if (!input.skipActivityLog) {
+    await createActivityLog({
+      userId: input.userId,
+      storeId: input.storeId,
+      membershipId: input.membershipId ?? undefined,
+      action: "TRENDYOL_PUBLISH_BATCH_STARTED",
+      entityType: "product",
+      entityId: input.productId,
+      message: `Trendyol publish batch başladı · storeId=${input.storeId} · userId=${input.userId} · productId=${input.productId} · mappingId=${mappingRow.id} · correlation=${correlationBatchId}`
+    });
+  }
 
   const apiResult = await publishFn({
     userId: input.userId,
@@ -313,6 +482,8 @@ export async function runTrendyolProductPublishPipeline(input: {
     body
   });
 
+  let itemResult: PublishItemResult;
+
   if (!apiResult.ok) {
     const duplicateBarcode =
       /ayn[iı]\s+barkod/i.test(apiResult.message) ||
@@ -320,52 +491,87 @@ export async function runTrendyolProductPublishPipeline(input: {
     const friendlyError = duplicateBarcode
       ? "Barkod çakışması veya mevcut kayıt."
       : apiResult.message;
+    const code = mapTrendyolErrorToInternalCode(friendlyError);
 
-    await prisma.productMarketplaceMapping.update({
-      where: { id: mappingRow.id },
-      data: {
-        publishStatus: "failed",
-        lastErrorMessage: friendlyError.slice(0, 2000),
-        lastSyncAt: new Date()
+    itemResult = {
+      productId: input.productId,
+      mappingId: mappingRow.id,
+      barcode: (mappingRow.barcode as string | null) ?? undefined,
+      status: "FAILED",
+      errorCode: code,
+      errorMessage: friendlyError
+    };
+  } else {
+    itemResult = parseTrendyolPublishResponse({
+      httpOk: true,
+      httpStatus: apiResult.status,
+      data: apiResult.data,
+      context: {
+        productId: input.productId,
+        mappingId: mappingRow.id,
+        barcode: mappingRow.barcode as string | null,
+        stockCode: mappingRow.stockCode as string | null,
+        productMainId: mappingRow.productMainId as string | null
       }
     });
+  }
 
-    if (!input.skipActivityLog) {
+  await persistPublishItemResults({
+    storeId: input.storeId,
+    results: [itemResult],
+    correlationBatchId
+  });
+
+  const batch = buildPublishBatchResult([itemResult]);
+
+  if (!input.skipActivityLog) {
+    if (itemResult.status === "FAILED") {
       await createActivityLog({
         userId: input.userId,
         storeId: input.storeId,
         membershipId: input.membershipId ?? undefined,
-        action: "TRENDYOL_PRODUCT_PUBLISH_FAILED",
+        action: "TRENDYOL_PUBLISH_ITEM_FAILED",
         entityType: "product",
         entityId: input.productId,
-        message: "Trendyol ürün gönderimi başarısız oldu"
+        message: `Trendyol publish ürün başarısız · storeId=${input.storeId} · userId=${input.userId} · productId=${input.productId} · mappingId=${mappingRow.id} · barcode=${itemResult.barcode ?? ""} · batchRequestId=${itemResult.batchRequestId ?? correlationBatchId} · status=FAILED · errorCode=${itemResult.errorCode ?? ""} · ${(itemResult.errorMessage ?? "").slice(0, 240)}`
+      });
+    } else {
+      await createActivityLog({
+        userId: input.userId,
+        storeId: input.storeId,
+        membershipId: input.membershipId ?? undefined,
+        action: "TRENDYOL_PUBLISH_ITEM_SUCCEEDED",
+        entityType: "product",
+        entityId: input.productId,
+        message: `Trendyol publish ürün tamamlandı · storeId=${input.storeId} · userId=${input.userId} · productId=${input.productId} · mappingId=${mappingRow.id} · barcode=${itemResult.barcode ?? ""} · batchRequestId=${itemResult.batchRequestId ?? correlationBatchId} · status=${itemResult.status}`
       });
     }
+    await createActivityLog({
+      userId: input.userId,
+      storeId: input.storeId,
+      membershipId: input.membershipId ?? undefined,
+      action: "TRENDYOL_PUBLISH_BATCH_COMPLETED",
+      entityType: "product",
+      entityId: input.productId,
+      message: `Trendyol publish batch bitti · storeId=${input.storeId} · userId=${input.userId} · productId=${input.productId} · total=${batch.total} · success=${batch.success} · failed=${batch.failed} · pending=${batch.pending}`
+    });
+  }
 
+  if (itemResult.status === "FAILED") {
     return {
       ok: false,
-      httpStatus: apiResult.status >= 400 ? apiResult.status : 502,
-      error: friendlyError
+      httpStatus: !apiResult.ok
+        ? apiResult.status >= 400
+          ? apiResult.status
+          : 502
+        : 400,
+      error: itemResult.errorMessage ?? "Trendyol gönderimi başarısız oldu.",
+      batch
     };
   }
 
-  const batchRequestId = extractBatchRequestId(apiResult.data);
-
-  const successData: Record<string, unknown> = {
-    publishStatus: batchRequestId ? "sent" : "processing",
-    lastErrorMessage: batchRequestId
-      ? null
-      : "Yanıtta batchRequestId bulunamadı; Trendyol panelinden kontrol edin.",
-    lastSyncAt: new Date()
-  };
-  if (batchRequestId) {
-    successData.batchRequestId = batchRequestId;
-  }
-
-  await prisma.productMarketplaceMapping.update({
-    where: { id: mappingRow.id },
-    data: successData
-  });
+  const batchRequestId =
+    itemResult.batchRequestId ?? (apiResult.ok ? extractBatchRequestId(apiResult.data) : null);
 
   await prisma.product.updateMany({
     where: { id: input.productId, userId: input.userId, storeId: input.storeId },
@@ -388,14 +594,14 @@ export async function runTrendyolProductPublishPipeline(input: {
           successCount: 0,
           failedCount: 0,
           pendingCount: 1,
-          batchRequestType: "ProductPublish",
+          batchRequestType: contentRepublishMode ? "ProductUpdate" : "ProductPublish",
           lastSyncMessage: "Ürün Trendyol kuyruğuna alındı."
         },
         update: {
           batchStatus: "IN_PROGRESS",
           itemCount: 1,
           pendingCount: 1,
-          batchRequestType: "ProductPublish",
+          batchRequestType: contentRepublishMode ? "ProductUpdate" : "ProductPublish",
           lastSyncMessage: "Ürün Trendyol kuyruğuna alındı."
         }
       });
@@ -404,22 +610,26 @@ export async function runTrendyolProductPublishPipeline(input: {
     }
   }
 
-  if (!input.skipActivityLog) {
-    await createActivityLog({
-      userId: input.userId,
-      storeId: input.storeId,
-      membershipId: input.membershipId ?? undefined,
-      action: "PRODUCT_PUBLISHED",
-      entityType: "product",
-      entityId: input.productId,
-      message: "Ürün Trendyol'da yayınlanmak üzere gönderildi."
-    });
-  }
+  const publishStatus =
+    itemResult.status === "SUCCESS"
+      ? "published"
+      : batchRequestId
+        ? "sent"
+        : "processing";
+
+  const message =
+    itemResult.status === "PENDING"
+      ? "İstek Trendyol kuyruğuna alındı. Batch sonucunu kontrol edin."
+      : itemResult.status === "SUCCESS"
+        ? "Trendyol yanıtı bu ürün için başarılı görünüyor."
+        : "İşlem tamamlandı.";
 
   return {
     ok: true,
     batchRequestId: batchRequestId ?? null,
-    publishStatus: batchRequestId ? "sent" : "processing"
+    publishStatus,
+    batch,
+    message
   };
 }
 
@@ -506,13 +716,10 @@ export async function runTrendyolProductDeleteFromPlatform(input: {
     return { ok: false, httpStatus: 400, error: "Satıcı ID (Seller ID) tanımlı değil." };
   }
 
-  await prisma.productMarketplaceMapping.update({
-    where: { id: mappingRow.id },
-    data: {
-      publishStatus: "processing",
-      lastErrorMessage: null,
-      lastSyncAt: new Date()
-    }
+  await secureProductMarketplaceMappingUpdateMany(mappingRow.id, input.storeId, {
+    publishStatus: "processing",
+    lastErrorMessage: null,
+    lastSyncAt: new Date()
   });
 
   const apiResult = await deleteTrendyolProductsOnTrendyol({
@@ -523,13 +730,10 @@ export async function runTrendyolProductDeleteFromPlatform(input: {
   });
 
   if (!apiResult.ok) {
-    await prisma.productMarketplaceMapping.update({
-      where: { id: mappingRow.id },
-      data: {
-        publishStatus: prevPublishStatus,
-        lastErrorMessage: apiResult.message.slice(0, 2000),
-        lastSyncAt: new Date()
-      }
+    await secureProductMarketplaceMappingUpdateMany(mappingRow.id, input.storeId, {
+      publishStatus: prevPublishStatus,
+      lastErrorMessage: apiResult.message.slice(0, 2000),
+      lastSyncAt: new Date()
     });
     if (!input.skipActivityLog) {
       await createActivityLog({
@@ -551,16 +755,13 @@ export async function runTrendyolProductDeleteFromPlatform(input: {
 
   const batchRequestId = extractBatchRequestId(apiResult.data);
 
-  await prisma.productMarketplaceMapping.update({
-    where: { id: mappingRow.id },
-    data: {
-      publishStatus: batchRequestId ? "sent" : "processing",
-      batchRequestId: batchRequestId ?? mappingRow.batchRequestId,
-      lastErrorMessage: batchRequestId
-        ? null
-        : "Yanıtta batchRequestId yok; Trendyol panelinden doğrulayın.",
-      lastSyncAt: new Date()
-    }
+  await secureProductMarketplaceMappingUpdateMany(mappingRow.id, input.storeId, {
+    publishStatus: batchRequestId ? "sent" : "processing",
+    batchRequestId: batchRequestId ?? mappingRow.batchRequestId,
+    lastErrorMessage: batchRequestId
+      ? null
+      : "Yanıtta batchRequestId yok; Trendyol panelinden doğrulayın.",
+    lastSyncAt: new Date()
   });
 
   if (batchRequestId) {

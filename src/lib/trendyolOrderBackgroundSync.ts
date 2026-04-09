@@ -9,6 +9,7 @@ import {
   type OrderSyncPullMode
 } from "@/lib/trendyolOrderSync";
 import { logger } from "@/lib/logger";
+import { secureOrderSyncJobUpdateMany } from "@/lib/security/storeScope";
 
 const MS_DAY = 86_400_000;
 const SYNC_RANGE_DAYS = 30;
@@ -167,13 +168,10 @@ export async function markStuckOrderSyncJobsAsFailed(): Promise<number> {
   if (stuck.length === 0) return 0;
 
   for (const job of stuck) {
-    await prisma.orderSyncJob.update({
-      where: { id: job.id },
-      data: {
-        status: "failed",
-        finishedAt: new Date(),
-        errorMessage: "Running timeout exceeded; marked as failed."
-      }
+    await secureOrderSyncJobUpdateMany(job.id, job.storeId, {
+      status: "failed",
+      finishedAt: new Date(),
+      errorMessage: "Running timeout exceeded; marked as failed."
     });
     await finalizeJobState({
       storeId: job.storeId,
@@ -265,7 +263,7 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
   if (!job || job.status !== "queued") return;
 
   const claim = await prisma.orderSyncJob.updateMany({
-    where: { id: jobId, status: "queued" },
+    where: { id: jobId, storeId: job.storeId, status: "queued" },
     data: {
       status: "running",
       startedAt: new Date(),
@@ -277,15 +275,12 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
 
   const actor = await getTrendyolSyncActorForStore(job.storeId);
   if (!actor) {
-    await prisma.orderSyncJob.update({
-      where: { id: jobId },
-      data: {
-        status: "failed",
-        finishedAt: new Date(),
-        heartbeatAt: null,
-        lockUntil: null,
-        errorMessage: "Aktif Trendyol bağlantısı yok."
-      }
+    await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+      status: "failed",
+      finishedAt: new Date(),
+      heartbeatAt: null,
+      lockUntil: null,
+      errorMessage: "Aktif Trendyol bağlantısı yok."
     });
     await finalizeJobState({
       storeId: job.storeId,
@@ -315,12 +310,9 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
       `Senkron işi başladı (${job.syncType}).`,
       jobId
     );
-    await prisma.orderSyncJob.update({
-      where: { id: jobId },
-      data: {
-        heartbeatAt: new Date(),
-        lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS)
-      }
+    await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+      heartbeatAt: new Date(),
+      lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS)
     });
 
     const now = Date.now();
@@ -378,12 +370,9 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
         rangeStartMs = Math.max(now - SYNC_RANGE_DAYS * MS_DAY, base - SYNC_OVERLAP_MS);
       }
 
-      await prisma.orderSyncJob.update({
-        where: { id: jobId },
-        data: {
-          lastCursorStartDate: new Date(rangeStartMs),
-          lastCursorEndDate: new Date(rangeEndMs)
-        }
+      await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+        lastCursorStartDate: new Date(rangeStartMs),
+        lastCursorEndDate: new Date(rangeEndMs)
       });
 
       pullResult = await runTrendyolOrderSyncPull({
@@ -400,9 +389,9 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
         rangeEndMs,
         continueOnPackageError: true
       });
-      await prisma.orderSyncJob.update({
-        where: { id: jobId },
-        data: { heartbeatAt: new Date(), lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS) }
+      await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+        heartbeatAt: new Date(),
+        lockUntil: new Date(Date.now() + RUNNING_JOB_MAX_MS)
       });
 
       await prisma.marketplaceOrderEvent.create({
@@ -444,25 +433,22 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
       else finalStatus = "partial";
     }
 
-    await prisma.orderSyncJob.update({
-      where: { id: jobId },
-      data: {
-        status: finalStatus,
-        finishedAt: new Date(),
-        heartbeatAt: null,
-        lockUntil: null,
-        packagesFetchedCount,
-        packagesCreatedCount,
-        packagesUpdatedCount,
-        packagesSkippedCount,
-        failedCount,
-        errorMessage:
-          finalStatus === "failed"
-            ? "İşlenecek kayıt yok veya tümü başarısız."
-            : failedCount
-              ? `${failedCount} kayıt işlenemedi.`
-              : null
-      }
+    await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+      status: finalStatus,
+      finishedAt: new Date(),
+      heartbeatAt: null,
+      lockUntil: null,
+      packagesFetchedCount,
+      packagesCreatedCount,
+      packagesUpdatedCount,
+      packagesSkippedCount,
+      failedCount,
+      errorMessage:
+        finalStatus === "failed"
+          ? "İşlenecek kayıt yok veya tümü başarısız."
+          : failedCount
+            ? `${failedCount} kayıt işlenemedi.`
+            : null
     });
 
     const hadSuccess = finalStatus !== "failed";
@@ -504,18 +490,15 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (isRetryableError(e) && jobRow.attemptCount < jobRow.maxAttempts) {
-        await prisma.orderSyncJob.update({
-          where: { id: jobId },
-          data: {
-            status: "queued",
-            startedAt: null,
-            finishedAt: null,
-            heartbeatAt: null,
-            lockUntil: null,
-            attemptCount: { increment: 1 },
-            nextRetryAt: new Date(Date.now() + backoffMs(jobRow.attemptCount)),
-            errorMessage: msg
-          }
+        await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+          status: "queued",
+          startedAt: null,
+          finishedAt: null,
+          heartbeatAt: null,
+          lockUntil: null,
+          attemptCount: { increment: 1 },
+          nextRetryAt: new Date(Date.now() + backoffMs(jobRow.attemptCount)),
+          errorMessage: msg
         });
         await logJob(
           userId,
@@ -527,15 +510,12 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
         );
         return;
       }
-      await prisma.orderSyncJob.update({
-        where: { id: jobId },
-        data: {
-          status: "failed",
-          finishedAt: new Date(),
-          heartbeatAt: null,
-          lockUntil: null,
-          errorMessage: msg
-        }
+      await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+        status: "failed",
+        finishedAt: new Date(),
+        heartbeatAt: null,
+        lockUntil: null,
+        errorMessage: msg
       });
       await finalizeJobState({
         storeId: job.storeId,
@@ -568,15 +548,12 @@ export async function runOrderSyncJob(jobId: string): Promise<void> {
   });
 
   if (!lock.ok) {
-    await prisma.orderSyncJob.update({
-      where: { id: jobId },
-      data: {
-        status: "queued",
-        startedAt: null,
-        heartbeatAt: null,
-        lockUntil: null,
-        nextRetryAt: new Date(Date.now() + 10_000)
-      }
+    await secureOrderSyncJobUpdateMany(jobId, job.storeId, {
+      status: "queued",
+      startedAt: null,
+      heartbeatAt: null,
+      lockUntil: null,
+      nextRetryAt: new Date(Date.now() + 10_000)
     });
     return;
   }

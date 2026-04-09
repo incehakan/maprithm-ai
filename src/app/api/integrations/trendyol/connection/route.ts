@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { encryptSecret, decryptSecret, maskSecret } from "@/lib/secretCrypto";
 import { requireActiveStore } from "@/lib/requireActiveStore";
+import {
+  createErrorResponse,
+  jsonError,
+  notFound
+} from "@/lib/errors/errorResponse";
 
 type ConnectionPayload = {
   sellerId: string;
@@ -72,8 +77,10 @@ export async function GET() {
   try {
     ctx = await requireActiveStore();
   } catch (e: any) {
-    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
-    return NextResponse.json({ error: msg }, { status: 401 });
+    const noStore = e?.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
 
   try {
@@ -106,10 +113,9 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Trendyol connection GET error:", error);
-    return NextResponse.json(
-      { error: "Bağlantı bilgileri alınamadı." },
-      { status: 500 }
-    );
+    return createErrorResponse(error, {
+      route: "GET /api/integrations/trendyol/connection"
+    });
   }
 }
 
@@ -118,15 +124,20 @@ export async function POST(request: Request) {
   try {
     ctx = await requireActiveStore();
   } catch (e: any) {
-    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
-    return NextResponse.json({ error: msg }, { status: 401 });
+    const noStore = e?.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
 
   let body: Partial<ConnectionPayload>;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Geçersiz JSON." }, { status: 400 });
+    return jsonError("VALIDATION_ERROR", {
+      userMessage: "Geçersiz istek gövdesi.",
+      httpStatus: 400
+    });
   }
 
   const sellerId = typeof body.sellerId === "string" ? body.sellerId.trim() : "";
@@ -141,19 +152,19 @@ export async function POST(request: Request) {
   const apiSecret = typeof body.apiSecret === "string" ? body.apiSecret : "";
 
   if (!sellerId) {
-    return NextResponse.json(
-      { error: "Seller ID zorunludur." },
-      { status: 400 }
-    );
+    return jsonError("VALIDATION_ERROR", {
+      userMessage: "Seller ID zorunludur.",
+      field: "sellerId",
+      httpStatus: 400
+    });
   }
   if (!userAgent) {
-    return NextResponse.json(
-      {
-        error:
-          "User-Agent zorunludur (Trendyol dokümantasyonuna uygun formatta girin)."
-      },
-      { status: 400 }
-    );
+    return jsonError("VALIDATION_ERROR", {
+      userMessage:
+        "User-Agent zorunludur (Trendyol dokümantasyonuna uygun formatta girin).",
+      field: "userAgent",
+      httpStatus: 400
+    });
   }
 
   try {
@@ -162,13 +173,11 @@ export async function POST(request: Request) {
       !anyPrisma.marketplaceConnection ||
       typeof anyPrisma.marketplaceConnection.create !== "function"
     ) {
-      return NextResponse.json(
-        {
-          error:
-            "MarketplaceConnection modeli henüz mevcut. npx prisma migrate dev çalıştırın."
-        },
-        { status: 503 }
-      );
+      return jsonError("INTERNAL_ERROR", {
+        userMessage: "Sunucu yapılandırması güncel değil. Yöneticinize başvurun.",
+        internalMessage: "MarketplaceConnection delegate missing",
+        httpStatus: 503
+      });
     }
 
     const existing = await anyPrisma.marketplaceConnection.findFirst({
@@ -181,12 +190,11 @@ export async function POST(request: Request) {
 
     if (!existing) {
       if (!apiKey.trim() || !apiSecret.trim()) {
-        return NextResponse.json(
-          {
-            error: "İlk kayıtta API Key ve API Secret zorunludur."
-          },
-          { status: 400 }
-        );
+        return jsonError("VALIDATION_ERROR", {
+          userMessage: "İlk kayıtta API Key ve API Secret zorunludur.",
+          field: "apiKey",
+          httpStatus: 400
+        });
       }
       apiKeyEncrypted = encryptSecret(apiKey.trim());
       apiSecretEncrypted = encryptSecret(apiSecret.trim());
@@ -233,39 +241,55 @@ export async function POST(request: Request) {
             ? Math.round(Number(cargoIn))
             : null;
 
-    const row = existing
-      ? await anyPrisma.marketplaceConnection.update({
-          where: { id: existing.id },
-          data: {
-            sellerId,
-            apiKeyEncrypted,
-            apiSecretEncrypted,
-            userAgent,
-            environment,
-            isActive,
-            ...(shipmentAddressId !== undefined && { shipmentAddressId }),
-            ...(returnAddressId !== undefined && { returnAddressId }),
-            ...(cheSupplierId !== undefined && { cheSupplierId }),
-            ...(defaultCargoCompanyId !== undefined && { defaultCargoCompanyId })
-          }
-        })
-      : await anyPrisma.marketplaceConnection.create({
-          data: {
-            userId: ctx.userId,
-            storeId: ctx.storeId,
-            platform: "trendyol",
-            sellerId,
-            apiKeyEncrypted,
-            apiSecretEncrypted,
-            userAgent,
-            environment,
-            isActive,
-            ...(shipmentAddressId !== undefined && { shipmentAddressId }),
-            ...(returnAddressId !== undefined && { returnAddressId }),
-            ...(cheSupplierId !== undefined && { cheSupplierId }),
-            ...(defaultCargoCompanyId !== undefined && { defaultCargoCompanyId })
-          }
-        });
+    let row: Awaited<
+      ReturnType<typeof prisma.marketplaceConnection.findFirst>
+    > | null;
+
+    if (existing) {
+      const updated = await prisma.marketplaceConnection.updateMany({
+        where: { id: existing.id, storeId: ctx.storeId },
+        data: {
+          sellerId,
+          apiKeyEncrypted,
+          apiSecretEncrypted,
+          userAgent,
+          environment,
+          isActive,
+          ...(shipmentAddressId !== undefined && { shipmentAddressId }),
+          ...(returnAddressId !== undefined && { returnAddressId }),
+          ...(cheSupplierId !== undefined && { cheSupplierId }),
+          ...(defaultCargoCompanyId !== undefined && { defaultCargoCompanyId })
+        }
+      });
+      if (updated.count === 0) {
+        return notFound("STORE_SCOPE_MISMATCH");
+      }
+      row = await prisma.marketplaceConnection.findFirst({
+        where: { id: existing.id, storeId: ctx.storeId }
+      });
+    } else {
+      row = await anyPrisma.marketplaceConnection.create({
+        data: {
+          userId: ctx.userId,
+          storeId: ctx.storeId,
+          platform: "trendyol",
+          sellerId,
+          apiKeyEncrypted,
+          apiSecretEncrypted,
+          userAgent,
+          environment,
+          isActive,
+          ...(shipmentAddressId !== undefined && { shipmentAddressId }),
+          ...(returnAddressId !== undefined && { returnAddressId }),
+          ...(cheSupplierId !== undefined && { cheSupplierId }),
+          ...(defaultCargoCompanyId !== undefined && { defaultCargoCompanyId })
+        }
+      });
+    }
+
+    if (!row) {
+      return notFound("STORE_SCOPE_MISMATCH");
+    }
 
     return NextResponse.json({
       success: true,
@@ -273,14 +297,16 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Trendyol connection POST error:", error);
-    const msg =
-      error instanceof Error ? error.message : "Kayıt sırasında hata oluştu.";
+    const msg = error instanceof Error ? error.message : "";
     if (msg.includes("ENCRYPTION_KEY")) {
-      return NextResponse.json({ error: msg }, { status: 500 });
+      return jsonError("INTERNAL_ERROR", {
+        userMessage: "Şifreleme anahtarı yapılandırılmamış. Sunucu ayarlarını kontrol edin.",
+        internalMessage: msg,
+        httpStatus: 500
+      });
     }
-    return NextResponse.json(
-      { error: "Bağlantı kaydedilemedi." },
-      { status: 500 }
-    );
+    return createErrorResponse(error, {
+      route: "POST /api/integrations/trendyol/connection"
+    });
   }
 }
