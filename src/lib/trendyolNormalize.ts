@@ -177,3 +177,29 @@ export function normalizeCategoryAttributeValueData(
     rawData: toJsonValue(rawApiData)
   };
 }
+
+/** V2 getCategoryAttributeValues — attributeValueId + attributeValueName */
+export function normalizeCategoryAttributeValueDataV2(
+  rawApiData: unknown
+): NormalizedTrendyolCategoryAttributeValue | null {
+  if (rawApiData === null || typeof rawApiData !== "object") {
+    return null;
+  }
+  const o = rawApiData as Record<string, unknown>;
+  const attributeValueId = Number(o.attributeValueId ?? o.id);
+  const attributeValue = String(
+    o.attributeValueName ?? o.attributeValue ?? o.name ?? ""
+  ).trim();
+  if (
+    !Number.isFinite(attributeValueId) ||
+    attributeValueId <= 0 ||
+    !attributeValue
+  ) {
+    return null;
+  }
+  return {
+    attributeValueId,
+    attributeValue,
+    rawData: toJsonValue(rawApiData)
+  };
+}

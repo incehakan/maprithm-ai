@@ -36,6 +36,7 @@ Kod karşılığı: `src/lib/trendyolPartnerApiV2.ts` (`V2_PATH_META`, `buildTre
 _(Faz 1 ilerledikçe doldurulacak.)_
 
 - [x] Görev 1: V2 path iskeleti + doğrulama tablosu
+- [x] Görev 2: Referans senkronu — V2 kategori özellik/değer uçları (`getCategoryAttributes` + `getCategoryAttributeValues`); marka/kategori ağacı V1 ile aynı path
 
 ## Geri Alma Adımları
 
