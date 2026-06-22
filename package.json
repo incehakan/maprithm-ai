@@ -9,7 +9,9 @@
     "lint": "next lint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "ensure-superuser": "node scripts/ensure-superuser.js",
+    "backfill:vat-rate": "node scripts/backfill-line-vat-rate.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

@@ -157,7 +157,10 @@ export function normalizeLineUnitPrice(line: Record<string, unknown>): number | 
 }
 
 export function normalizeLineVatBase(line: Record<string, unknown>): number | null {
-  const v = line.vatBaseAmount ?? line.vatBase ?? line.vatAmount;
+  // Trendyol bu alanı production'da 06.04.2026'dan beri "vatRate" olarak gönderiyor;
+  // eski "vatBaseAmount" artık dönmüyor. DB kolon adı (vatBaseAmount) tarihsel nedenle
+  // değişmedi — Faz 5'teki genel rename'e bırakıldı. Burada sadece okuma kaynağı düzeltiliyor.
+  const v = line.vatRate ?? line.vatBaseAmount ?? line.vatBase ?? line.vatAmount;
   if (typeof v === "number" && Number.isFinite(v)) return v;
   if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)))
     return Number(v);
