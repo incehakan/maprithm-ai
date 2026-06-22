@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { hasPermission } from "@/lib/permissionClient";
+import { useMobileNav } from "@/components/layout/MobileNavProvider";
 import {
   isGroup,
   sidebarMenuConfig,
@@ -64,6 +67,7 @@ function collectAutoOpenGroupKeys(items: SidebarMenuItem[], pathname: string) {
 export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { open, setOpen } = useMobileNav();
   const permissionKeys = (session?.permissionKeys as string[] | undefined) ?? [];
   const isSystemAdmin = Boolean((session as any)?.isSystemAdmin);
 
@@ -83,19 +87,46 @@ export function Sidebar() {
     });
   }, [menu, pathname]);
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname, setOpen]);
+
   return (
-    <aside className="sticky top-0 flex h-screen w-72 flex-col border-r border-white/10 bg-[#090f1d]/85 text-slate-100 shadow-[0_0_120px_-60px_rgba(59,130,246,0.4)] backdrop-blur-2xl">
-      <div className="px-6 py-5">
-        <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-indigo-500/25 via-violet-500/15 to-cyan-400/15 px-4 py-3 shadow-[0_16px_40px_-22px_rgba(99,102,241,0.8)]">
+    <>
+      {open ? (
+        <button
+          type="button"
+          aria-label="Menüyü kapat"
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
+      <aside
+        className={cn(
+          "sticky top-0 flex h-screen w-72 flex-col border-r border-white/10 bg-[#090f1d]/85 text-slate-100 shadow-[0_0_120px_-60px_rgba(59,130,246,0.4)] backdrop-blur-2xl",
+          "max-md:fixed max-md:z-50 max-md:transition-transform max-md:duration-300",
+          open ? "max-md:translate-x-0" : "max-md:-translate-x-full"
+        )}
+      >
+      <div className="flex items-center justify-between px-6 py-5">
+        <div className="relative flex-1 overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-br from-indigo-500/25 via-violet-500/15 to-cyan-400/15 px-4 py-3 shadow-[0_16px_40px_-22px_rgba(99,102,241,0.8)]">
           <div className="absolute -right-4 -top-4 h-14 w-14 rounded-full bg-white/20 blur-xl" />
           <div className="relative text-[11px] uppercase tracking-[0.2em] text-indigo-100/90">
             Maprithm
           </div>
-          <div className="relative mt-1 text-sm font-semibold text-white">Commerce AI OS</div>
+          <div className="relative mt-1 text-sm font-semibold text-white">Ticaret AI OS</div>
           <div className="relative mt-1 text-[11px] text-slate-200/80">
-            Premium Commerce Workspace
+            Premium Ticaret Çalışma Alanı
           </div>
         </div>
+        <button
+          type="button"
+          aria-label="Menüyü kapat"
+          className="ml-2 rounded-lg border border-white/10 p-2 text-slate-300 hover:bg-white/10 md:hidden"
+          onClick={() => setOpen(false)}
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
@@ -148,5 +179,6 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }
