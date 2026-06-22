@@ -12,6 +12,8 @@ import { resolveTrendyolCommercials } from "@/lib/trendyolCreateProductPayload";
 import { requireActiveStore } from "@/lib/requireActiveStore";
 import { getCargoCompaniesForStore } from "@/lib/trendyol/getCargoCompaniesForStore";
 import { Prisma } from "@prisma/client";
+import { isFeatureEnabled, FEATURE_FLAGS } from "@/lib/featureFlags";
+import { categoryRequiresOrigin } from "@/lib/trendyolOriginRequired";
 
 type Params = { params: { id: string } };
 
@@ -69,6 +71,14 @@ export async function GET(request: Request, { params }: Params) {
   if (!product) {
     return NextResponse.json({ error: "Ürün bulunamadı." }, { status: 404 });
   }
+
+  const store = await prisma.store.findUnique({
+    where: { id: ctx.storeId },
+    select: { featureFlags: true }
+  });
+  const originFieldEnabled = store
+    ? isFeatureEnabled(store, FEATURE_FLAGS.ORIGIN_FIELD)
+    : false;
 
   const settings = await getUserSettings({ userId: ctx.userId, storeId: ctx.storeId });
   const p = product as any;
@@ -295,6 +305,13 @@ export async function GET(request: Request, { params }: Params) {
     { price: Number(product.price), stock: product.stock }
   );
 
+  const originCountries = originFieldEnabled
+    ? await prisma.trendyolOriginCountry.findMany({
+        orderBy: { name: "asc" },
+        select: { code: true, name: true }
+      })
+    : [];
+
   return NextResponse.json({
     mapping,
     defaults,
@@ -305,6 +322,10 @@ export async function GET(request: Request, { params }: Params) {
     categoryAttributes,
     effectiveCategoryId,
     readiness,
+    productOrigin: product.origin ?? null,
+    originFieldEnabled,
+    categoryRequiresOrigin: categoryRequiresOrigin(defs),
+    originCountries,
     effectiveCommercials: {
       ...effectiveCommercials,
       barcode: mapping?.barcode ?? defaults.barcode ?? null,
@@ -334,6 +355,7 @@ type PostBody = {
   lastErrorMessage?: string | null;
   mainImageUrl?: string | null;
   imageUrls?: unknown;
+  origin?: string | null;
   attributes?: Array<{
     attributeId: number;
     attributeName: string;
@@ -490,7 +512,15 @@ export async function POST(request: Request, { params }: Params) {
         imageUrls:
           normalizedImageUrls.length > 0
             ? (normalizedImageUrls as Prisma.InputJsonValue)
-            : Prisma.JsonNull
+            : Prisma.JsonNull,
+        ...(body.origin !== undefined
+          ? {
+              origin:
+                body.origin != null && String(body.origin).trim() !== ""
+                  ? String(body.origin).trim().slice(0, 2).toUpperCase()
+                  : null
+            }
+          : {})
       }
     });
 

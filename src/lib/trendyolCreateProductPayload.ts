@@ -30,6 +30,7 @@ export type TrendyolCreateProductItem = {
   cargoCompanyId: number;
   shipmentAddressId?: number;
   returningAddressId?: number;
+  origin?: string;
   images: Array<{ url: string }>;
   attributes: TrendyolCreateProductAttribute[];
 };
@@ -70,6 +71,9 @@ export type BuildTrendyolProductPayloadInput = {
   }>;
   /** Ürün / ayarlardan — payload'da kullanılacak */
   fallbackVatRate: number;
+  /** FEATURE_FLAGS.ORIGIN_FIELD açıkken ürün menşei kodu (2 harf) */
+  productOrigin?: string | null;
+  includeOriginField?: boolean;
 };
 
 export type TrendyolResolvedCommercials = {
@@ -191,7 +195,7 @@ export function buildTrendyolCreateProductItem(
   }
   const cargoCompanyId = Math.round(cargoNum);
 
-  return {
+  const item: TrendyolCreateProductItem = {
     barcode,
     title,
     productMainId: productMainId.slice(0, 40),
@@ -211,6 +215,15 @@ export function buildTrendyolCreateProductItem(
     images,
     attributes: buildAttributes(mappingAttributes)
   };
+
+  if (input.includeOriginField) {
+    const originRaw = input.productOrigin?.trim() ?? "";
+    if (originRaw) {
+      item.origin = originRaw.slice(0, 2).toUpperCase();
+    }
+  }
+
+  return item;
 }
 
 export function buildTrendyolCreateProductBody(

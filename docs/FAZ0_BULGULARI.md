@@ -54,3 +54,78 @@ Ortam **env var ile override edilmiyor**; tamamen DB'deki bağlantı kaydından 
 | `isFeatureEnabled` + flag kapalıyken payload davranışı | Orta | Geriye dönük uyumluluk |
 
 Faz 0'da `normalizeLineVatBase` için `scripts/manual-test-vat-rate.js` ile manuel doğrulama yapıldı (test runner olmadığı için).
+
+## 3. Origin Alanı Doğrulaması
+
+Kaynak: [Ürün Aktarma V1 (createProducts)](https://developers.trendyol.com/docs/ürün-aktarma-v2createproducts), [Menşei Değerleri Listesi](https://developers.trendyol.com/docs/ürün-menşei-değerleri.md), [Menşei Listesi API](https://developers.trendyol.com/reference/autoft-get-origins), changelog 13.05.2026.
+
+### createProducts (V1) — `origin` alanı
+
+| Özellik | Değer |
+|---------|-------|
+| Konum | `items[]` dizisindeki **her ürün satırının kökü** (variant/barcode başına; `attributes` ile aynı seviye) |
+| Veri tipi | `string` |
+| Format | 2 harfli ülke kodu (ör. `"TR"`, `"AD"`) — max 2 karakter |
+| Zorunluluk | Şu an **opsiyonel**; **30 Haziran 2026** itibarıyla zorunlu olacak |
+
+Örnek request gövdesi (tek item):
+
+```json
+{
+  "items": [
+    {
+      "barcode": "barkod-1234",
+      "title": "Bebek Takımı Pamuk",
+      "productMainId": "1234BT",
+      "brandId": 1791,
+      "categoryId": 411,
+      "quantity": 100,
+      "stockCode": "STK-345",
+      "origin": "AD",
+      "dimensionalWeight": 2,
+      "description": "Ürün açıklama bilgisi",
+      "currencyType": "TRY",
+      "listPrice": 250.99,
+      "salePrice": 120.99,
+      "vatRate": 18,
+      "cargoCompanyId": 10,
+      "images": [{ "url": "https://example.com/img.jpg" }],
+      "attributes": []
+    }
+  ]
+}
+```
+
+Endpoint: `POST /integration/product/sellers/{sellerId}/products`  
+Stage: `https://stageapigw.trendyol.com/integration/product/sellers/{sellerId}/products`  
+Production: `https://apigw.trendyol.com/integration/product/sellers/{sellerId}/products`
+
+### Menşei Değerleri Listesi
+
+- **Statik referans (V1 kodları):** [ürün-menşei-değerleri](https://developers.trendyol.com/docs/ürün-menşei-değerleri.md) — `code` (2 harf) + Türkçe `name` tablosu (ör. `TR` → Türkiye).
+- **API referans servisi (lookup):**
+
+| | |
+|--|--|
+| Method | `GET` |
+| Path | `/integration/ecgw/v1/{sellerId}/lookup/origins` |
+| Stage base | `https://stageapigw.trendyol.com/integration/ecgw` |
+| Production base | `https://apigw.trendyol.com/integration/ecgw` |
+| Auth | Basic (API Key + Secret), zorunlu header'lar: `x-clientip`, `x-correlationid`, `x-agentname` |
+
+Örnek response:
+
+```json
+{
+  "items": [
+    { "name": "Almanya" },
+    { "name": "Türkiye" }
+  ]
+}
+```
+
+**Not:** API yanıtı yalnızca Türkçe `name` döner; V1 `createProducts` payload'ı ise 2 harfli `code` bekler. Uygulama kod eşlemesini resmi statik listeyle yapar; API çağrısı isim doğrulama / senkron için kullanılır.
+
+### Zorunlu kategori tespiti (uygulama)
+
+Menşei zorunluluğu, seçili kategorinin `TrendyolCategoryAttribute` kayıtlarında **zorunlu** ve adı `Menşei` / `origin` olan attribute varlığıyla tespit edilir (`categoryRequiresOrigin`).

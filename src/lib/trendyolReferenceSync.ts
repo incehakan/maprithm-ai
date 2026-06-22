@@ -6,6 +6,10 @@ import { logger } from "@/lib/logger";
 import {
   syncTrendyolCategoryAttributesForAllLeafCategoriesSystem
 } from "@/lib/trendyolSyncCategoryAttributes";
+import {
+  OFFICIAL_TRENDYOL_ORIGIN_COUNTRIES,
+  resolveOriginCodeFromApiName
+} from "@/lib/trendyolOriginCountrySeed";
 
 type TrendyolBrandRaw = Record<string, unknown>;
 type TrendyolBrandsResponse = { brands: TrendyolBrandRaw[] };
@@ -175,6 +179,63 @@ export async function syncGlobalTrendyolCategories(): Promise<{ count: number }>
   return { count: totalProcessed };
 }
 
+type TrendyolOriginsApiResponse = {
+  items?: Array<{ name?: string }>;
+};
+
+/**
+ * Menşei referans listesini senkronize eder.
+ * V1 createProducts 2 harfli kod kullanır; API (ecgw lookup) Türkçe isim döner — kod eşlemesi resmi statik listeyle yapılır.
+ * @see GET /integration/ecgw/v1/{sellerId}/lookup/origins
+ */
+export async function syncTrendyolOriginCountries(): Promise<{ count: number }> {
+  const now = new Date();
+  const conn = await prisma.systemMarketplaceConnection.findUnique({
+    where: { platform: "trendyol" },
+    select: { sellerId: true }
+  });
+
+  const seenApiNames = new Set<string>();
+  if (conn?.sellerId) {
+    const result = await trendyolSystemFetch<TrendyolOriginsApiResponse>(
+      `/integration/ecgw/v1/${encodeURIComponent(conn.sellerId)}/lookup/origins`
+    );
+    if (result.ok && Array.isArray(result.data?.items)) {
+      for (const item of result.data.items) {
+        const name = String(item?.name ?? "").trim();
+        if (name) seenApiNames.add(name);
+      }
+    } else if (!result.ok) {
+      logger.warn("trendyol_origin_api_fallback", {
+        helper: "syncTrendyolOriginCountries",
+        message: result.message
+      });
+    }
+  }
+
+  let totalProcessed = 0;
+  for (const entry of OFFICIAL_TRENDYOL_ORIGIN_COUNTRIES) {
+    await prisma.trendyolOriginCountry.upsert({
+      where: { code: entry.code },
+      create: { code: entry.code, name: entry.name },
+      update: { name: entry.name }
+    });
+    totalProcessed++;
+  }
+
+  for (const apiName of seenApiNames) {
+    const code = resolveOriginCodeFromApiName(apiName);
+    if (!code) continue;
+    await prisma.trendyolOriginCountry.upsert({
+      where: { code },
+      create: { code, name: apiName },
+      update: { name: apiName }
+    });
+  }
+
+  return { count: totalProcessed };
+}
+
 export async function runGlobalTrendyolReferenceSync(params?: {
   triggeredByUserId?: string | null;
 }): Promise<{
@@ -182,6 +243,7 @@ export async function runGlobalTrendyolReferenceSync(params?: {
   carrierSource: "api" | "static";
   brands: number;
   categories: number;
+  originCountries: number;
   categoryAttributes: number;
   categoryAttributeValues: number;
   categoriesProcessed: number;
@@ -218,10 +280,11 @@ export async function runGlobalTrendyolReferenceSync(params?: {
     const carriers = await syncGlobalTrendyolCarrierCompanies();
     const brands = await syncGlobalTrendyolBrands();
     const categories = await syncGlobalTrendyolCategories();
+    const origins = await syncTrendyolOriginCountries();
     const attrs = await syncTrendyolCategoryAttributesForAllLeafCategoriesSystem();
     if (!attrs.success) throw new Error(attrs.message);
 
-    const message = `Kargo ref: ${carriers.count} (${carriers.source}), marka: ${brands.count}, kategori: ${categories.count}, özellik: ${attrs.data.attributeCount}, değer: ${attrs.data.valueCount}`;
+    const message = `Kargo ref: ${carriers.count} (${carriers.source}), marka: ${brands.count}, kategori: ${categories.count}, menşei: ${origins.count}, özellik: ${attrs.data.attributeCount}, değer: ${attrs.data.valueCount}`;
     await prisma.systemMarketplaceConnection.update({
       where: { platform: "trendyol" },
       data: {
@@ -240,6 +303,7 @@ export async function runGlobalTrendyolReferenceSync(params?: {
           carrierSource: carriers.source,
           brands: brands.count,
           categories: categories.count,
+          originCountries: origins.count,
           categoryAttributes: attrs.data.attributeCount,
           categoryAttributeValues: attrs.data.valueCount,
           categoriesProcessed: attrs.data.categoriesProcessed,
@@ -254,6 +318,7 @@ export async function runGlobalTrendyolReferenceSync(params?: {
       carrierSource: carriers.source,
       brands: brands.count,
       categories: categories.count,
+      originCountries: origins.count,
       categoryAttributes: attrs.data.attributeCount,
       categoryAttributeValues: attrs.data.valueCount,
       categoriesProcessed: attrs.data.categoriesProcessed,

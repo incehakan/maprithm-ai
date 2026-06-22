@@ -30,6 +30,8 @@ import {
   TrendyolPublishRuntimeErrorCode
 } from "@/lib/validation/trendyolPublishErrorCodes";
 import { secureProductMarketplaceMappingUpdateMany } from "@/lib/security/storeScope";
+import { isFeatureEnabled, FEATURE_FLAGS } from "@/lib/featureFlags";
+import { categoryRequiresOrigin } from "@/lib/trendyolOriginRequired";
 
 export type TrendyolPublishPipelineResult =
   | {
@@ -308,7 +310,18 @@ export async function runTrendyolProductPublishPipeline(input: {
   }));
 
   const settings = await getUserSettings({ userId: input.userId, storeId: input.storeId });
-  const p = product as typeof product & { imageUrls?: unknown; vatRate?: number | null };
+  const store = await prisma.store.findUnique({
+    where: { id: input.storeId },
+    select: { featureFlags: true }
+  });
+  const originFieldEnabled = store
+    ? isFeatureEnabled(store, FEATURE_FLAGS.ORIGIN_FIELD)
+    : false;
+  const p = product as typeof product & {
+    imageUrls?: unknown;
+    vatRate?: number | null;
+    origin?: string | null;
+  };
   const useProductPrice = (mappingRow.useProductPrice as boolean | null) !== false;
   const useProductStock = (mappingRow.useProductStock as boolean | null) !== false;
   const resolvedCommercials = resolveTrendyolCommercials({
@@ -388,6 +401,36 @@ export async function runTrendyolProductPublishPipeline(input: {
     };
   }
 
+  if (
+    originFieldEnabled &&
+    categoryRequiresOrigin(defs) &&
+    !String(p.origin ?? "").trim()
+  ) {
+    const msg = "Bu kategori için menşei (origin) zorunludur.";
+    await persistPublishValidationFailure({
+      storeId: input.storeId,
+      mappingId: mappingRow.id,
+      code: TrendyolPrePublishErrorCode.TRENDYOL_ORIGIN_MISSING,
+      message: msg
+    });
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: msg,
+      missing: ["Menşei (origin)"],
+      batch: buildPublishBatchResult([
+        {
+          productId: input.productId,
+          mappingId: mappingRow.id,
+          barcode: (mappingRow.barcode as string | null) ?? undefined,
+          status: "FAILED",
+          errorCode: TrendyolPrePublishErrorCode.TRENDYOL_ORIGIN_MISSING,
+          errorMessage: msg
+        }
+      ])
+    };
+  }
+
   const fallbackVat =
     mappingRow.vatRate != null && Number.isFinite(mappingRow.vatRate)
       ? mappingRow.vatRate
@@ -426,7 +469,9 @@ export async function runTrendyolProductPublishPipeline(input: {
       mappingAttributes: savedAttrs,
       fallbackVatRate: fallbackVat,
       shipmentAddressId,
-      returnAddressId
+      returnAddressId,
+      productOrigin: p.origin ?? null,
+      includeOriginField: originFieldEnabled
     });
   } catch (e) {
     console.error("buildTrendyolCreateProductBody error:", e);

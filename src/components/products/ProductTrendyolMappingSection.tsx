@@ -83,6 +83,7 @@ type EffectiveCommercials = {
 };
 
 type CargoCompanyOpt = { id: number; label: string };
+type OriginCountryOpt = { code: string; name: string };
 
 export type ProductSyncSnapshot = {
   hasTrendyolMapping: boolean;
@@ -298,6 +299,13 @@ export function ProductTrendyolMappingSection({
   const [attrState, setAttrState] = useState<
     Record<number, { valueId: number | null; custom: string }>
   >({});
+  const [productOrigin, setProductOrigin] = useState<string | null>(null);
+  const [originFieldEnabled, setOriginFieldEnabled] = useState(false);
+  const [categoryRequiresOriginFlag, setCategoryRequiresOriginFlag] =
+    useState(false);
+  const [originCountries, setOriginCountries] = useState<OriginCountryOpt[]>(
+    []
+  );
 
   const load = useCallback(
     async (previewCategoryId?: number | null) => {
@@ -421,6 +429,16 @@ export function ProductTrendyolMappingSection({
       setReadiness(data.readiness ?? null);
       setPrePublishResult(null);
       setEffectiveCommercials(data.effectiveCommercials ?? null);
+      setOriginFieldEnabled(data.originFieldEnabled === true);
+      setCategoryRequiresOriginFlag(data.categoryRequiresOrigin === true);
+      setOriginCountries(
+        Array.isArray(data.originCountries) ? data.originCountries : []
+      );
+      if (!isPreview) {
+        setProductOrigin(
+          typeof data.productOrigin === "string" ? data.productOrigin : null
+        );
+      }
 
       const attrsFromApi: CatAttr[] = data.categoryAttributes ?? [];
       const saved: MappingAttr[] = data.mapping?.attributes ?? [];
@@ -536,7 +554,8 @@ export function ProductTrendyolMappingSection({
           .split(/\r?\n/)
           .map((x) => x.trim())
           .filter(Boolean),
-        attributes: attrs
+        attributes: attrs,
+        ...(originFieldEnabled ? { origin: productOrigin } : {})
       };
 
       const res = await fetch(`/api/products/${productId}/trendyol-mapping`, {
@@ -1274,6 +1293,31 @@ export function ProductTrendyolMappingSection({
             placeholder="Kategori ara…"
           />
         </div>
+
+        {originFieldEnabled && categoryRequiresOriginFlag && (
+          <div className="max-w-md">
+            <label className="label">
+              Menşei (origin) <span className="text-rose-400">*</span>
+            </label>
+            <select
+              className="input"
+              value={productOrigin ?? ""}
+              onChange={(e) =>
+                setProductOrigin(e.target.value ? e.target.value : null)
+              }
+            >
+              <option value="">Seçin…</option>
+              {originCountries.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Bu kategori menşei bilgisini zorunlu kılar (Trendyol origin alanı).
+            </p>
+          </div>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>

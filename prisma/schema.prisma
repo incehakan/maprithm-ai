@@ -452,6 +452,9 @@ model Product {
   vatRate          Float?
   targetProfitRate Float?
 
+  /// Trendyol createProducts origin alanı (2 harfli ülke kodu, örn. TR)
+  origin           String?
+
   // Demo veri işaretleme
   isDemo         Boolean  @default(false)
 
@@ -744,6 +747,14 @@ model MarketplaceOrderShippingEvent {
   @@index([storeId, orderId])
   @@index([storeId, shipmentPackageId])
   @@index([storeId, createdAt])
+}
+
+model TrendyolOriginCountry {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model TrendyolBrand {

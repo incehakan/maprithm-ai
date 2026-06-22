@@ -4,6 +4,8 @@ import { resolveTrendyolCommercials } from "@/lib/trendyolCreateProductPayload";
 import type { BuildTrendyolProductPayloadInput } from "@/lib/trendyolCreateProductPayload";
 import { normalizeImageUrls } from "@/lib/productImages";
 import type { CategoryAttrDef, SavedMappingAttr } from "@/lib/trendyolMappingReadiness";
+import { isFeatureEnabled, FEATURE_FLAGS } from "@/lib/featureFlags";
+import { categoryRequiresOrigin } from "@/lib/trendyolOriginRequired";
 import {
   TrendyolPrePublishErrorCode,
   TrendyolPrePublishWarningCode
@@ -263,6 +265,22 @@ export function validateCargo(
   }
 }
 
+export function validateOriginField(
+  origin: string | null | undefined,
+  defs: CategoryAttrDef[],
+  errors: PrePublishValidationError[]
+): void {
+  if (!categoryRequiresOrigin(defs)) return;
+  if (!String(origin ?? "").trim()) {
+    pushError(
+      errors,
+      TrendyolPrePublishErrorCode.TRENDYOL_ORIGIN_MISSING,
+      "Bu kategori için menşei (origin) zorunludur. Ürün eşleştirmeden menşei seçin.",
+      "origin"
+    );
+  }
+}
+
 export function collectOptionalWarnings(
   product: {
     description: string | null;
@@ -312,6 +330,14 @@ export async function validateProductForTrendyolPublish(
     return { isPublishable: false, errors, warnings };
   }
 
+  const store = await prisma.store.findUnique({
+    where: { id: ctx.storeId },
+    select: { featureFlags: true }
+  });
+  const originFieldEnabled = store
+    ? isFeatureEnabled(store, FEATURE_FLAGS.ORIGIN_FIELD)
+    : false;
+
   const conn = await prisma.marketplaceConnection.findFirst({
     where: { storeId: ctx.storeId, platform: "trendyol" },
     select: {
@@ -340,7 +366,8 @@ export async function validateProductForTrendyolPublish(
       mainImageUrl: true,
       imageUrls: true,
       seoDescription: true,
-      tags: true
+      tags: true,
+      origin: true
     }
   });
 
@@ -437,6 +464,10 @@ export async function validateProductForTrendyolPublish(
   }));
 
   validateRequiredCategoryAttributes(defs, savedAttrs, errors);
+
+  if (originFieldEnabled) {
+    validateOriginField(product.origin, defs, errors);
+  }
 
   const mainForImages = mapping.mainImageUrl ?? product.mainImageUrl;
   const extraForImages = mapping.imageUrls ?? product.imageUrls;
