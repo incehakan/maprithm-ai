@@ -12,6 +12,8 @@ export type TrendyolConnectionTestInput = {
   clientIp: string;
   /** Trendyol zorunlu header: istemci / entegratör adı */
   agentName: string;
+  /** PRODUCT_V2: filterApprovedProducts ile bağlantı testi */
+  useProductV2Filter?: boolean;
 };
 
 export type TrendyolConnectionTestResult = {
@@ -34,9 +36,13 @@ export async function testTrendyolPartnerConnection(
   input: TrendyolConnectionTestInput
 ): Promise<TrendyolConnectionTestResult> {
   const base = getBaseUrl(input.environment);
-  const path = `/integration/product/sellers/${encodeURIComponent(
-    input.sellerId.trim()
-  )}/products?page=0&size=1`;
+  const path = input.useProductV2Filter
+    ? `/integration/product/sellers/${encodeURIComponent(
+        input.sellerId.trim()
+      )}/products/approved?page=0&size=1`
+    : `/integration/product/sellers/${encodeURIComponent(
+        input.sellerId.trim()
+      )}/products?page=0&size=1`;
   const url = `${base}${path}`;
 
   const token = Buffer.from(
