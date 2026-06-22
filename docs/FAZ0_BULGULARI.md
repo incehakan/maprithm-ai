@@ -31,3 +31,26 @@ Ortam **env var ile override edilmiyor**; tamamen DB'deki bağlantı kaydından 
 4. Feature flag (`Store.featureFlags.origin_field_enabled`) açılmadan origin payload/UI davranışı değişmez.
 
 **Sonuç:** Ortam ayrımı doğru yapılandırılmış; STAGE testleri için ek kod değil, bağlantı kayıtlarında `environment` alanının `stage` yapılması yeterli.
+
+## 2. Test Kapsamı Envanteri
+
+### Mevcut durum
+
+- `*.test.ts`, `*.spec.ts` dosyası **yok**
+- `jest.config.*`, `vitest.config.*` **yok**
+- `package.json` içinde test script'i veya test runner bağımlılığı **yok**
+
+**Sonuç:** Otomatik test altyapısı bulunmuyor.
+
+### Faz 1+ için önerilen kritik test path'leri
+
+| Alan | Öncelik | Neden |
+|------|---------|-------|
+| `buildTrendyolCreateProductItem` / V2 payload mapping | Yüksek | V1→V2 geçişinde alan adı ve şema değişiklikleri |
+| `extractBatchRequestId` + batch sonuç parse | Yüksek | Yayın sonrası durum takibi |
+| `normalizeLineVatBase` ve sipariş satır normalizasyonu | Yüksek | Production API alan rename'leri (vatRate) |
+| Trendyol hata kodu → internal kod haritalama | Orta | Kullanıcıya doğru hata mesajı |
+| `validateProductForTrendyolPublish` | Orta | Yayın öncesi local validasyon regresyonu |
+| `isFeatureEnabled` + flag kapalıyken payload davranışı | Orta | Geriye dönük uyumluluk |
+
+Faz 0'da `normalizeLineVatBase` için `scripts/manual-test-vat-rate.js` ile manuel doğrulama yapıldı (test runner olmadığı için).
