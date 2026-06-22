@@ -2,10 +2,15 @@ import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { createActivityLog } from "@/lib/activityLog";
 import { getUserSettings } from "@/lib/userSettings";
+import { buildMarketplaceImages } from "@/lib/productImages";
 import {
   buildTrendyolCreateProductBody,
+  buildTrendyolCreateProductBodyV2,
+  buildTrendyolApprovedContentUpdateItemV2,
+  buildTrendyolUnapprovedUpdateItemV2,
   extractBatchRequestId,
-  resolveTrendyolCommercials
+  resolveTrendyolCommercials,
+  type BuildTrendyolProductPayloadInput
 } from "@/lib/trendyolCreateProductPayload";
 import { evaluateTrendyolPublishReadiness } from "@/lib/trendyolMappingReadiness";
 import { canPublishProduct } from "@/lib/productLifecycle";
@@ -14,6 +19,15 @@ import {
   deleteTrendyolProductsOnTrendyol,
   updateProductOnTrendyol
 } from "@/lib/trendyolProductMutations";
+import {
+  deleteTrendyolProductsV2,
+  getTrendyolProductBase,
+  parseTrendyolContentIdFromProductBase,
+  publishProductToTrendyolV2,
+  updateApprovedProductContentOnTrendyol,
+  updateUnapprovedProductsOnTrendyol
+} from "@/lib/trendyolProductApiV2";
+import { isStoreProductV2Enabled } from "@/lib/trendyolStoreProductV2";
 import type { ProductMarketplaceMapping } from "@prisma/client";
 import { buildPublishBatchResult } from "@/lib/trendyol/publish/buildPublishBatchResult";
 import { createPublishPayloadHash } from "@/lib/trendyol/publish/createPublishPayloadHash";
@@ -121,11 +135,17 @@ export async function runTrendyolProductPublishPipeline(input: {
   productId: string;
   /** XML içerik değişimi: canPublish "published" ürünü hariç tutmasın */
   contentRepublishMode?: boolean;
+  /** V2 onaysız içerik güncelleme — flag açık mağazada */
+  trendyolV2Operation?: "createProducts" | "updateUnapprovedProducts";
   publishProduct?: PublishProductFn;
   skipActivityLog?: boolean;
 }): Promise<TrendyolPublishPipelineResult> {
   const publishFn = input.publishProduct ?? publishProductToTrendyol;
   const contentRepublishMode = input.contentRepublishMode === true;
+  const v2Op = input.trendyolV2Operation;
+  const productV2Enabled =
+    v2Op != null ||
+    (!contentRepublishMode && (await isStoreProductV2Enabled(input.storeId)));
 
   const product = await prisma.product.findFirst({
     where: { id: input.productId, userId: input.userId, storeId: input.storeId }
@@ -438,41 +458,48 @@ export async function runTrendyolProductPublishPipeline(input: {
         ? p.vatRate
         : settings.defaultVatRate ?? 20;
 
-  let body: ReturnType<typeof buildTrendyolCreateProductBody>;
+  let body: unknown;
+  const payloadInput: BuildTrendyolProductPayloadInput = {
+    product: {
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      stock: product.stock,
+      price: Number(product.price)
+    },
+    mapping: {
+      barcode: mappingRow.barcode as string | null,
+      stockCode: mappingRow.stockCode as string | null,
+      productMainId: mappingRow.productMainId as string | null,
+      trendyolBrandId: mappingRow.trendyolBrandId as number | null,
+      trendyolCategoryId: mappingRow.trendyolCategoryId as number | null,
+      quantity: mappingRow.quantity as number | null,
+      dimensionalWeight: mappingRow.dimensionalWeight as number | null,
+      currencyType: mappingRow.currencyType as string | null,
+      listPrice: mappingRow.listPrice as number | null,
+      salePrice: mappingRow.salePrice as number | null,
+      useProductPrice,
+      vatRate: mappingRow.vatRate as number | null,
+      cargoCompanyId: mappingRow.cargoCompanyId as number | null,
+      useProductStock,
+      mainImageUrl: mappingRow.mainImageUrl as string | null,
+      imageUrls: (mappingRow.imageUrls as unknown) ?? p.imageUrls ?? null
+    },
+    mappingAttributes: savedAttrs,
+    fallbackVatRate: fallbackVat,
+    shipmentAddressId,
+    returnAddressId,
+    productOrigin: p.origin ?? null,
+    includeOriginField: originFieldEnabled
+  };
   try {
-    body = buildTrendyolCreateProductBody({
-      product: {
-        id: product.id,
-        name: product.name,
-        description: product.description,
-        stock: product.stock,
-        price: Number(product.price)
-      },
-      mapping: {
-        barcode: mappingRow.barcode as string | null,
-        stockCode: mappingRow.stockCode as string | null,
-        productMainId: mappingRow.productMainId as string | null,
-        trendyolBrandId: mappingRow.trendyolBrandId as number | null,
-        trendyolCategoryId: mappingRow.trendyolCategoryId as number | null,
-        quantity: mappingRow.quantity as number | null,
-        dimensionalWeight: mappingRow.dimensionalWeight as number | null,
-        currencyType: mappingRow.currencyType as string | null,
-        listPrice: mappingRow.listPrice as number | null,
-        salePrice: mappingRow.salePrice as number | null,
-        useProductPrice,
-        vatRate: mappingRow.vatRate as number | null,
-        cargoCompanyId: mappingRow.cargoCompanyId as number | null,
-        useProductStock,
-        mainImageUrl: mappingRow.mainImageUrl as string | null,
-        imageUrls: (mappingRow.imageUrls as unknown) ?? p.imageUrls ?? null
-      },
-      mappingAttributes: savedAttrs,
-      fallbackVatRate: fallbackVat,
-      shipmentAddressId,
-      returnAddressId,
-      productOrigin: p.origin ?? null,
-      includeOriginField: originFieldEnabled
-    });
+    if (productV2Enabled && v2Op === "updateUnapprovedProducts") {
+      body = { items: [buildTrendyolUnapprovedUpdateItemV2(payloadInput)] };
+    } else if (productV2Enabled) {
+      body = buildTrendyolCreateProductBodyV2(payloadInput);
+    } else {
+      body = buildTrendyolCreateProductBody(payloadInput);
+    }
   } catch (e) {
     console.error("buildTrendyolCreateProductBody error:", e);
     const msg = e instanceof Error ? e.message : "Payload oluşturulamadı.";
@@ -520,12 +547,26 @@ export async function runTrendyolProductPublishPipeline(input: {
     });
   }
 
-  const apiResult = await publishFn({
-    userId: input.userId,
-    storeId: input.storeId,
-    sellerId,
-    body
-  });
+  const apiResult = await (productV2Enabled
+    ? v2Op === "updateUnapprovedProducts"
+      ? updateUnapprovedProductsOnTrendyol({
+          userId: input.userId,
+          storeId: input.storeId,
+          sellerId,
+          body
+        })
+      : publishProductToTrendyolV2({
+          userId: input.userId,
+          storeId: input.storeId,
+          sellerId,
+          body
+        })
+    : publishFn({
+        userId: input.userId,
+        storeId: input.storeId,
+        sellerId,
+        body
+      }));
 
   let itemResult: PublishItemResult;
 
@@ -679,7 +720,7 @@ export async function runTrendyolProductPublishPipeline(input: {
 }
 
 /**
- * Yayında ürün için Trendyol PUT .../products (tam gövde güncelleme).
+ * Yayında ürün için Trendyol içerik güncelleme (V1 PUT veya V2 bulk update).
  */
 export async function runTrendyolProductContentUpdatePipeline(input: {
   userId: string;
@@ -688,6 +729,23 @@ export async function runTrendyolProductContentUpdatePipeline(input: {
   productId: string;
   skipActivityLog?: boolean;
 }): Promise<TrendyolPublishPipelineResult> {
+  if (await isStoreProductV2Enabled(input.storeId)) {
+    const mappingRow = await prisma.productMarketplaceMapping.findUnique({
+      where: {
+        productId_platform: { productId: input.productId, platform: "trendyol" }
+      }
+    });
+    if (mappingRow?.approvalState === "APPROVED") {
+      return runTrendyolApprovedContentUpdatePipelineV2(input);
+    }
+    return runTrendyolProductPublishPipeline({
+      ...input,
+      contentRepublishMode: true,
+      trendyolV2Operation: "updateUnapprovedProducts",
+      skipActivityLog: input.skipActivityLog
+    });
+  }
+
   return runTrendyolProductPublishPipeline({
     ...input,
     contentRepublishMode: true,
@@ -700,6 +758,170 @@ export async function runTrendyolProductContentUpdatePipeline(input: {
       }),
     skipActivityLog: input.skipActivityLog
   });
+}
+
+async function runTrendyolApprovedContentUpdatePipelineV2(input: {
+  userId: string;
+  storeId: string;
+  membershipId: string | null;
+  productId: string;
+  skipActivityLog?: boolean;
+}): Promise<TrendyolPublishPipelineResult> {
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, userId: input.userId, storeId: input.storeId }
+  });
+  if (!product) {
+    return { ok: false, httpStatus: 404, error: "Ürün bulunamadı." };
+  }
+
+  const mappingRow = await prisma.productMarketplaceMapping.findUnique({
+    where: {
+      productId_platform: { productId: input.productId, platform: "trendyol" }
+    },
+    include: { attributes: true }
+  });
+  if (!mappingRow || mappingRow.storeId !== input.storeId) {
+    return { ok: false, httpStatus: 400, error: "Trendyol eşleştirmesi bulunamadı." };
+  }
+
+  const conn = await prisma.marketplaceConnection.findUnique({
+    where: { storeId_platform: { storeId: input.storeId, platform: "trendyol" } }
+  });
+  if (!conn?.isActive) {
+    return { ok: false, httpStatus: 400, error: "Aktif Trendyol bağlantısı yok." };
+  }
+  const sellerId = String(conn.sellerId).trim();
+  if (!sellerId) {
+    return { ok: false, httpStatus: 400, error: "Satıcı ID (Seller ID) tanımlı değil." };
+  }
+
+  const barcode = String(mappingRow.barcode ?? "").trim();
+  if (!barcode) {
+    return { ok: false, httpStatus: 400, error: "Barkod tanımlı değil." };
+  }
+
+  let contentId = mappingRow.trendyolContentId;
+  if (contentId == null) {
+    const baseRes = await getTrendyolProductBase({
+      userId: input.userId,
+      storeId: input.storeId,
+      sellerId,
+      barcode
+    });
+    if (!baseRes.ok) {
+      return {
+        ok: false,
+        httpStatus: baseRes.status >= 400 ? baseRes.status : 502,
+        error: baseRes.message || "Trendyol contentId alınamadı."
+      };
+    }
+    contentId = parseTrendyolContentIdFromProductBase(baseRes.data);
+    if (contentId != null) {
+      await prisma.productMarketplaceMapping.updateMany({
+        where: { id: mappingRow.id, storeId: input.storeId },
+        data: { trendyolContentId: contentId }
+      });
+    }
+  }
+
+  if (contentId == null) {
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: "Onaylı ürün contentId bulunamadı (getProductBase)."
+    };
+  }
+
+  const p = product as typeof product & { imageUrls?: unknown };
+  const images = buildMarketplaceImages({
+    mainImageUrl: mappingRow.mainImageUrl,
+    imageUrls: (mappingRow.imageUrls as unknown) ?? p.imageUrls ?? null
+  });
+
+  const title = (product.name || "Ürün").slice(0, 100);
+  const descRaw = product.description?.trim() || product.name || title;
+  const description =
+    descRaw.length > 30000 ? descRaw.slice(0, 30000) : descRaw;
+
+  const body = {
+    items: [
+      buildTrendyolApprovedContentUpdateItemV2({
+        contentId,
+        title,
+        description,
+        images,
+        includeAttributes: false
+      })
+    ]
+  };
+
+  const correlationBatchId = randomUUID();
+  await markPublishAttemptPending({
+    storeId: input.storeId,
+    mappingId: mappingRow.id,
+    payloadHash: createPublishPayloadHash(body),
+    correlationBatchId
+  });
+
+  const apiResult = await updateApprovedProductContentOnTrendyol({
+    userId: input.userId,
+    storeId: input.storeId,
+    sellerId,
+    body
+  });
+
+  let itemResult: PublishItemResult;
+  if (!apiResult.ok) {
+    itemResult = {
+      productId: input.productId,
+      mappingId: mappingRow.id,
+      barcode,
+      status: "FAILED",
+      errorCode: mapTrendyolErrorToInternalCode(apiResult.message),
+      errorMessage: apiResult.message
+    };
+  } else {
+    itemResult = parseTrendyolPublishResponse({
+      httpOk: true,
+      httpStatus: apiResult.status,
+      data: apiResult.data,
+      context: {
+        productId: input.productId,
+        mappingId: mappingRow.id,
+        barcode,
+        stockCode: mappingRow.stockCode,
+        productMainId: mappingRow.productMainId
+      }
+    });
+  }
+
+  await persistPublishItemResults({
+    storeId: input.storeId,
+    results: [itemResult],
+    correlationBatchId
+  });
+
+  const batch = buildPublishBatchResult([itemResult]);
+  if (itemResult.status === "FAILED") {
+    return {
+      ok: false,
+      httpStatus: apiResult.status >= 400 ? apiResult.status : 502,
+      error: itemResult.errorMessage ?? "Trendyol içerik güncellemesi başarısız.",
+      batch
+    };
+  }
+
+  const batchRequestId =
+    itemResult.batchRequestId ??
+    (apiResult.ok ? extractBatchRequestId(apiResult.data) : null);
+
+  return {
+    ok: true,
+    batchRequestId: batchRequestId ?? null,
+    publishStatus: batchRequestId ? "sent" : "processing",
+    batch,
+    message: "Onaylı ürün içerik güncellemesi Trendyol kuyruğuna alındı."
+  };
 }
 
 export type TrendyolDeletePipelineResult =
@@ -767,12 +989,19 @@ export async function runTrendyolProductDeleteFromPlatform(input: {
     lastSyncAt: new Date()
   });
 
-  const apiResult = await deleteTrendyolProductsOnTrendyol({
-    userId: input.userId,
-    storeId: input.storeId,
-    sellerId,
-    barcodes: [barcode]
-  });
+  const apiResult = (await isStoreProductV2Enabled(input.storeId))
+    ? await deleteTrendyolProductsV2({
+        userId: input.userId,
+        storeId: input.storeId,
+        sellerId,
+        barcodes: [barcode]
+      })
+    : await deleteTrendyolProductsOnTrendyol({
+        userId: input.userId,
+        storeId: input.storeId,
+        sellerId,
+        barcodes: [barcode]
+      });
 
   if (!apiResult.ok) {
     await secureProductMarketplaceMappingUpdateMany(mappingRow.id, input.storeId, {

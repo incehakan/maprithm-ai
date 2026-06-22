@@ -37,6 +37,16 @@ _(Faz 1 ilerledikçe doldurulacak.)_
 
 - [x] Görev 1: V2 path iskeleti + doğrulama tablosu
 - [x] Görev 2: Referans senkronu — V2 kategori özellik/değer uçları (`getCategoryAttributes` + `getCategoryAttributeValues`); marka/kategori ağacı V1 ile aynı path
+- [x] Görev 3: `approvalState` enum + `trendyolContentId` + backfill script
+- [x] Görev 4: `buildTrendyolCreateProductBodyV2` + publish pipeline V2 create
+- [x] Görev 5: `updateUnapprovedProducts` — onaysız içerik güncelleme yolu
+- [x] Görev 6: `updateApprovedProductContent` + onaylı ürün UI kilidi
+- [x] Görev 7: V2 varyant/teslimat API (`trendyolProductApiV2.ts`)
+- [x] Görev 8: `filterApprovedProducts` bağlantı testi seçeneği (`useProductV2Filter`)
+- [x] Görev 9: Arşiv/silme V2 path yönlendirmesi
+- [x] Görev 10: `unlockTrendyolProduct()` backend
+- [x] Görev 11: TR `vatRate` enum (`trendyolVatRate.ts` + prePublish)
+- [x] Görev 12: Admin system-status PRODUCT_V2 rollout özeti
 
 ## Geri Alma Adımları
 

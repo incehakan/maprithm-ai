@@ -1,5 +1,22 @@
 import { trendyolDelete, trendyolPutJson } from "@/lib/trendyolFetch";
 import { getTrendyolStorefrontCode } from "@/lib/trendyolShipmentPackages";
+import {
+  deleteTrendyolProductsV2,
+  unlockTrendyolProduct,
+  updateUnapprovedProductsOnTrendyol,
+  updateApprovedProductContentOnTrendyol,
+  updateApprovedProductVariantOnTrendyol,
+  updateApprovedProductDeliveryOnTrendyol
+} from "@/lib/trendyolProductApiV2";
+
+export {
+  unlockTrendyolProduct,
+  updateUnapprovedProductsOnTrendyol,
+  updateApprovedProductContentOnTrendyol,
+  updateApprovedProductVariantOnTrendyol,
+  updateApprovedProductDeliveryOnTrendyol,
+  deleteTrendyolProductsV2
+};
 
 export async function updateProductOnTrendyol(input: {
   userId: string;

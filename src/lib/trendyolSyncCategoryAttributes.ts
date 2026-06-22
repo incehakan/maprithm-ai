@@ -311,7 +311,7 @@ export async function syncTrendyolCategoryAttributesForCategorySystemV2(
       normalized.attributeId,
       async (path) => {
         const r = await trendyolSystemFetch<unknown>(path);
-        return { ok: r.ok, data: r.data, message: r.message };
+        return { ok: r.ok, data: r.ok ? r.data : undefined, message: r.ok ? undefined : r.message };
       }
     );
 

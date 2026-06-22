@@ -13,6 +13,10 @@ export type TrendyolCreateProductAttribute =
   | { attributeId: number; attributeValueId: number }
   | { attributeId: number; customAttributeValue: string };
 
+export type TrendyolCreateProductAttributeV2 =
+  | { attributeId: number; attributeValueIds: number[] }
+  | { attributeId: number; attributeValue: string };
+
 export type TrendyolCreateProductItem = {
   barcode: string;
   title: string;
@@ -121,6 +125,163 @@ function buildAttributes(
     }
   }
   return out;
+}
+
+export function buildAttributesV2(
+  rows: BuildTrendyolProductPayloadInput["mappingAttributes"]
+): TrendyolCreateProductAttributeV2[] {
+  const out: TrendyolCreateProductAttributeV2[] = [];
+  for (const r of rows) {
+    const vid = r.attributeValueId;
+    const custom = r.customValue?.trim() ?? "";
+    if (vid != null && Number.isFinite(vid) && vid > 0) {
+      out.push({
+        attributeId: r.attributeId,
+        attributeValueIds: [Math.round(vid)]
+      });
+    } else if (custom) {
+      out.push({
+        attributeId: r.attributeId,
+        attributeValue: custom
+      });
+    }
+  }
+  return out;
+}
+
+export type TrendyolCreateProductItemV2 = Omit<
+  TrendyolCreateProductItem,
+  "attributes" | "currencyType" | "cargoCompanyId"
+> & {
+  attributes: TrendyolCreateProductAttributeV2[];
+};
+
+/**
+ * V2 createProducts — attributeValueIds / attributeValue; cargoCompanyId create gövdesinde yok.
+ */
+export function buildTrendyolCreateProductItemV2(
+  input: BuildTrendyolProductPayloadInput
+): TrendyolCreateProductItemV2 {
+  const v1 = buildTrendyolCreateProductItem(input);
+  const {
+    currencyType: _currencyType,
+    cargoCompanyId: _cargoCompanyId,
+    attributes: _attributes,
+    ...rest
+  } = v1;
+  const item: TrendyolCreateProductItemV2 = {
+    ...rest,
+    attributes: buildAttributesV2(input.mappingAttributes)
+  };
+  return item;
+}
+
+export function buildTrendyolCreateProductBodyV2(
+  input: BuildTrendyolProductPayloadInput
+): { items: TrendyolCreateProductItemV2[] } {
+  return { items: [buildTrendyolCreateProductItemV2(input)] };
+}
+
+export type TrendyolUnapprovedUpdateItemV2 = {
+  barcode: string;
+  title?: string;
+  description?: string;
+  productMainId?: string;
+  brandId?: number;
+  categoryId?: number;
+  stockCode?: string;
+  dimensionalWeight?: number;
+  vatRate?: number;
+  shipmentAddressId?: number;
+  returningAddressId?: number;
+  images?: Array<{ url: string }>;
+  attributes?: TrendyolCreateProductAttributeV2[];
+  origin?: string;
+};
+
+export function buildTrendyolUnapprovedUpdateItemV2(
+  input: BuildTrendyolProductPayloadInput
+): TrendyolUnapprovedUpdateItemV2 {
+  const item = buildTrendyolCreateProductItemV2(input);
+  const out: TrendyolUnapprovedUpdateItemV2 = {
+    barcode: item.barcode,
+    title: item.title,
+    description: item.description,
+    productMainId: item.productMainId,
+    brandId: item.brandId,
+    categoryId: item.categoryId,
+    stockCode: item.stockCode,
+    dimensionalWeight: item.dimensionalWeight,
+    vatRate: item.vatRate,
+    shipmentAddressId: item.shipmentAddressId,
+    returningAddressId: item.returningAddressId,
+    images: item.images,
+    attributes: item.attributes
+  };
+  if (item.origin) {
+    out.origin = item.origin;
+  }
+  return out;
+}
+
+export type TrendyolApprovedContentUpdateItemV2 = {
+  contentId: number;
+  title?: string;
+  description?: string;
+  images?: Array<{ url: string }>;
+  attributes?: TrendyolCreateProductAttributeV2[];
+};
+
+export function buildTrendyolApprovedContentUpdateItemV2(input: {
+  contentId: number;
+  title: string;
+  description: string;
+  images: Array<{ url: string }>;
+  /** Tüm attribute/değerler — kısmi gönderim yasak */
+  attributes?: TrendyolCreateProductAttributeV2[];
+  includeAttributes: boolean;
+}): TrendyolApprovedContentUpdateItemV2 {
+  const item: TrendyolApprovedContentUpdateItemV2 = {
+    contentId: input.contentId,
+    title: input.title.slice(0, 100),
+    description:
+      input.description.length > 30000
+        ? input.description.slice(0, 30000)
+        : input.description,
+    images: input.images
+  };
+  if (input.includeAttributes && input.attributes) {
+    item.attributes = input.attributes;
+  }
+  return item;
+}
+
+export type TrendyolApprovedVariantUpdateItemV2 = {
+  barcode: string;
+  stockCode: string;
+  quantity: number;
+  dimensionalWeight: number;
+  vatRate: number;
+  listPrice: number;
+  salePrice: number;
+  images: Array<{ url: string }>;
+};
+
+export function buildTrendyolApprovedVariantUpdateItemV2(
+  input: BuildTrendyolProductPayloadInput
+): TrendyolApprovedVariantUpdateItemV2 {
+  const item = buildTrendyolCreateProductItemV2(input);
+  const { salePrice, listPrice, quantity } = resolveTrendyolCommercials(input);
+  return {
+    barcode: item.barcode,
+    stockCode: item.stockCode,
+    quantity,
+    dimensionalWeight: item.dimensionalWeight,
+    vatRate: item.vatRate,
+    listPrice,
+    salePrice,
+    images: item.images
+  };
 }
 
 /**

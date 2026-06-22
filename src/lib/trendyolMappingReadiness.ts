@@ -178,3 +178,67 @@ export function evaluateTrendyolPublishReadiness(
     missing
   };
 }
+
+export type CategoryAttrMeta = CategoryAttrDef & {
+  isVariantable?: boolean;
+  isSlicer?: boolean;
+};
+
+/** rawData.slicer — Trendyol kategori özellik API yanıtı */
+export function readCategoryAttrIsSlicer(rawData: unknown): boolean {
+  if (rawData == null || typeof rawData !== "object") return false;
+  return (rawData as Record<string, unknown>).slicer === true;
+}
+
+/** Onaylı üründe UI/API ile değiştirilemeyecek mapping alanları */
+export const TRENDYOL_APPROVED_LOCKED_MAPPING_FIELDS = [
+  "barcode",
+  "productMainId",
+  "trendyolBrandId",
+  "trendyolCategoryId"
+] as const;
+
+export function isTrendyolApprovedLockedAttribute(
+  attr: Pick<CategoryAttrMeta, "isVariantable" | "isSlicer">
+): boolean {
+  return Boolean(attr.isSlicer || attr.isVariantable);
+}
+
+/**
+ * Onaylı içerik güncellemesinde attribute gönderilecekse tüm attribute/değerler zorunlu.
+ */
+export function validateApprovedContentAttributeCompleteness(
+  categoryAttributeDefs: CategoryAttrMeta[],
+  savedAttributes: SavedMappingAttr[],
+  includeAttributes: boolean
+): { ok: true } | { ok: false; message: string } {
+  if (!includeAttributes) {
+    return { ok: true };
+  }
+  const editable = categoryAttributeDefs.filter(
+    (d) => !isTrendyolApprovedLockedAttribute(d)
+  );
+  const byId = new Map<number, SavedMappingAttr>();
+  for (const a of savedAttributes) {
+    byId.set(a.attributeId, a);
+  }
+  const missing: string[] = [];
+  for (const def of editable) {
+    const row = byId.get(def.attributeId);
+    const hasValueId =
+      row != null &&
+      row.attributeValueId != null &&
+      Number.isFinite(row.attributeValueId);
+    const custom = row?.customValue?.trim() ?? "";
+    if (!hasValueId && !custom) {
+      missing.push(`${def.attributeName} (${def.attributeId})`);
+    }
+  }
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      message: `Onaylı ürün attribute güncellemesi için tüm özellik değerleri gönderilmeli. Eksik: ${missing.join(", ")}`
+    };
+  }
+  return { ok: true };
+}
