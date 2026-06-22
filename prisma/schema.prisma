@@ -44,6 +44,7 @@ model Store {
   timezone  String?
   currency  String   @default("TRY")
   locale    String   @default("tr-TR")
+  featureFlags Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
