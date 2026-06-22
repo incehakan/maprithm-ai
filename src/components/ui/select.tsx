@@ -1,25 +1,35 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { ListboxSelect } from "@/components/ui/listbox-select";
 
-export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement>;
+export type SelectProps = Omit<
+  React.SelectHTMLAttributes<HTMLSelectElement>,
+  "ref"
+> & {
+  ref?: React.Ref<HTMLSelectElement>;
+};
 
 const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, children, ...props }, ref) => {
+  ({ className, children, value, defaultValue, onChange, name, id, disabled, ...rest }, ref) => {
+    void ref;
+    void rest;
     return (
-      <select
-        ref={ref}
-        className={cn(
-          "h-10 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30",
-          className
-        )}
-        {...props}
+      <ListboxSelect
+        id={id}
+        name={name}
+        value={value !== undefined ? String(value) : undefined}
+        defaultValue={defaultValue !== undefined ? String(defaultValue) : undefined}
+        onChange={onChange}
+        disabled={disabled}
+        className={cn("input", className)}
       >
         {children}
-      </select>
+      </ListboxSelect>
     );
   }
 );
 Select.displayName = "Select";
 
 export { Select };
-

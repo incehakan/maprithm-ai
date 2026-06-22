@@ -101,9 +101,7 @@ export function PremiumInput(props: React.InputHTMLAttributes<HTMLInputElement>)
   return <input className={cn("input", props.className)} {...props} />;
 }
 
-export function PremiumSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn("input", props.className)} {...props} />;
-}
+export { Select as PremiumSelect } from "@/components/ui/select";
 
 const statusBadge = cva(
   "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",

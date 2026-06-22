@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { OrderStatusFilterSelect } from "@/components/orders/OrderStatusFilterSelect";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -249,22 +250,7 @@ export default async function OrdersPage({
             <label className="label" htmlFor="status">
               Durum
             </label>
-            <select
-              id="status"
-              name="status"
-              className="input"
-              defaultValue={searchParams.status ?? ""}
-            >
-              <option value="">Tümü</option>
-              <option value="Created">Oluşturuldu</option>
-              <option value="Picking">Hazırlanıyor</option>
-              <option value="Invoiced">Faturalandı</option>
-              <option value="Shipped">Kargoya verildi</option>
-              <option value="Delivered">Teslim edildi</option>
-              <option value="Cancelled">İptal edildi</option>
-              <option value="UnSupplied">Tedarik edilmedi</option>
-              <option value="UnPacked">Parçalandı</option>
-            </select>
+            <OrderStatusFilterSelect defaultValue={searchParams.status ?? ""} />
           </div>
           <div className="md:col-span-2">
             <label className="label" htmlFor="from">
@@ -304,7 +290,7 @@ export default async function OrdersPage({
         </form>
       </div>
 
-      <div className="card overflow-x-auto">
+      <div className="card overflow-x-auto hidden md:block">
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs text-slate-400">
             <tr>
@@ -394,6 +380,46 @@ export default async function OrdersPage({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="space-y-3 md:hidden">
+        {orders.map((o) => {
+          const customer = [o.customerFirstName, o.customerLastName]
+            .filter(Boolean)
+            .join(" ");
+          return (
+            <div key={o.id} className="card space-y-2 p-4 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-medium text-slate-100">{o.orderNumber}</div>
+                  <div className="text-xs text-slate-400">
+                    {o.orderDate.toISOString().slice(0, 16).replace("T", " ")}
+                  </div>
+                </div>
+                <Link href={`/orders/${o.id}`} className="text-indigo-400 hover:underline">
+                  Aç
+                </Link>
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
+                <span className="text-slate-500">Durum</span>
+                <span>{packageStatusTR(o.packageStatus)}</span>
+                <span className="text-slate-500">Müşteri</span>
+                <span>{customer || "—"}</span>
+                <span className="text-slate-500">Toplam</span>
+                <span>{formatMoney(o.totalPrice, o.currency)}</span>
+                <span className="text-slate-500">Kargo</span>
+                <span className="truncate" title={cargoRowSummary(o)}>
+                  {cargoRowSummary(o)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        {orders.length === 0 && (
+          <div className="card p-6 text-center text-sm text-slate-500">
+            Kayıt yok. Trendyol bağlantınızı kontrol edip &quot;Senkron Et&quot; kullanın.
+          </div>
+        )}
       </div>
     </div>
   );
