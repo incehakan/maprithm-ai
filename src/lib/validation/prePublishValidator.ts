@@ -5,6 +5,7 @@ import type { BuildTrendyolProductPayloadInput } from "@/lib/trendyolCreateProdu
 import { normalizeImageUrls } from "@/lib/productImages";
 import type { CategoryAttrDef, SavedMappingAttr } from "@/lib/trendyolMappingReadiness";
 import { isFeatureEnabled, FEATURE_FLAGS } from "@/lib/featureFlags";
+import { validateTrendyolTrVatRate } from "@/lib/trendyolVatRate";
 import { categoryRequiresOrigin } from "@/lib/trendyolOriginRequired";
 import {
   TrendyolPrePublishErrorCode,
@@ -492,6 +493,20 @@ export async function validateProductForTrendyolPublish(
   validatePriceAndStock(resolved.salePrice, resolved.listPrice, resolved.quantity, errors);
 
   validateCargo(mapping.cargoCompanyId, conn.defaultCargoCompanyId, errors);
+
+  const vatForTrendyol =
+    mapping.vatRate != null && Number.isFinite(mapping.vatRate)
+      ? mapping.vatRate
+      : settings.defaultVatRate ?? 20;
+  const trendyolVatErr = validateTrendyolTrVatRate(vatForTrendyol);
+  if (trendyolVatErr) {
+    pushError(
+      errors,
+      TrendyolPrePublishErrorCode.TRENDYOL_INVALID_PRICE,
+      trendyolVatErr,
+      "vatRate"
+    );
+  }
 
   collectOptionalWarnings(
     {
