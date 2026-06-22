@@ -25,6 +25,7 @@ type CatAttr = {
   isRequired: boolean;
   isVariantable: boolean;
   allowCustom: boolean;
+  isSlicer?: boolean;
   values: CatAttrVal[];
 };
 
@@ -52,6 +53,7 @@ type MappingPayload = {
   useProductPrice?: boolean;
   useProductStock?: boolean;
   publishStatus: string;
+  approvalState?: string;
   publishedAt?: string | null;
   batchRequestId: string | null;
   lastErrorMessage: string | null;
@@ -258,6 +260,7 @@ export function ProductTrendyolMappingSection({
   const [salePrice, setSalePrice] = useState("");
   const [quantity, setQuantity] = useState("");
   const [publishStatus, setPublishStatus] = useState("draft");
+  const [approvalState, setApprovalState] = useState("UNAPPROVED");
   const [useProductPrice, setUseProductPrice] = useState(true);
   const [useProductStock, setUseProductStock] = useState(true);
   const [effectiveCommercials, setEffectiveCommercials] =
@@ -341,6 +344,7 @@ export function ProductTrendyolMappingSection({
         setUseProductPrice(d.useProductPrice !== false);
         setUseProductStock(d.useProductStock !== false);
         setPublishStatus(d.publishStatus || "draft");
+        setApprovalState(d.approvalState || "UNAPPROVED");
         setMainImageUrl(d.mainImageUrl ?? "");
         setImageUrlsText(
           Array.isArray(d.imageUrls)
@@ -377,6 +381,7 @@ export function ProductTrendyolMappingSection({
         setUseProductPrice(m.useProductPrice !== false);
         setUseProductStock(m.useProductStock !== false);
         setPublishStatus(m.publishStatus || "draft");
+        setApprovalState(m.approvalState || "UNAPPROVED");
         setMainImageUrl(m.mainImageUrl ?? "");
         setImageUrlsText(
           Array.isArray(m.imageUrls)
@@ -659,6 +664,9 @@ export function ProductTrendyolMappingSection({
       if (typeof data.publishStatus === "string") {
         setPublishStatus(data.publishStatus);
       }
+      if (typeof data.approvalState === "string") {
+        setApprovalState(data.approvalState);
+      }
       await load(trendyolCategoryId);
       router.refresh();
     } catch (e) {
@@ -803,6 +811,11 @@ export function ProductTrendyolMappingSection({
     return "bg-slate-800 text-slate-300 border-slate-600";
   }, [publishStatus]);
 
+  const isApprovedTrendyolMapping = useMemo(
+    () => (approvalState || "").toUpperCase() === "APPROVED",
+    [approvalState]
+  );
+
   const trendyolPublishLabel = useMemo(() => {
     const s = (publishStatus || "draft").toLowerCase();
     if (s === "published") return "Yayında";
@@ -906,6 +919,9 @@ export function ProductTrendyolMappingSection({
       if (typeof data.publishStatus === "string") {
         setPublishStatus(data.publishStatus);
       }
+      if (typeof data.approvalState === "string") {
+        setApprovalState(data.approvalState);
+      }
       await load(trendyolCategoryId);
       router.refresh();
     } catch (e) {
@@ -951,6 +967,9 @@ export function ProductTrendyolMappingSection({
       }
       if (typeof data.publishStatus === "string") {
         setPublishStatus(data.publishStatus);
+      }
+      if (typeof data.approvalState === "string") {
+        setApprovalState(data.approvalState);
       }
       await load(trendyolCategoryId);
       router.refresh();
@@ -1274,6 +1293,13 @@ export function ProductTrendyolMappingSection({
           </div>
         )}
 
+        {isApprovedTrendyolMapping && (
+          <div className="rounded-lg border border-sky-800/50 bg-sky-950/30 px-3 py-2 text-sm text-sky-100">
+            Bu ürün Trendyol&apos;da onaylı. Barkod, Product Main ID, marka, kategori ve
+            slicer/varyant özellikleri değiştirilemez.
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2">
           <TrendyolBrandSearchSelect
             label="Trendyol Marka"
@@ -1282,6 +1308,7 @@ export function ProductTrendyolMappingSection({
             selectedName={pickedBrandName}
             onPickName={setPickedBrandName}
             placeholder="Marka ara (en az 2 harf)…"
+            disabled={isApprovedTrendyolMapping}
           />
           <SearchableSelect
             label="Trendyol Kategori (yaprak)"
@@ -1291,6 +1318,7 @@ export function ProductTrendyolMappingSection({
             getId={(c) => c.categoryId}
             getLabel={(c) => `${c.name} (${c.categoryId})`}
             placeholder="Kategori ara…"
+            disabled={isApprovedTrendyolMapping}
           />
         </div>
 
@@ -1327,6 +1355,8 @@ export function ProductTrendyolMappingSection({
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
               placeholder="8690123456789"
+              readOnly={isApprovedTrendyolMapping}
+              disabled={isApprovedTrendyolMapping}
             />
           </div>
           <div>
@@ -1345,6 +1375,8 @@ export function ProductTrendyolMappingSection({
               value={productMainId}
               onChange={(e) => setProductMainId(e.target.value)}
               placeholder="Trendyol ürün ana kimliği"
+              readOnly={isApprovedTrendyolMapping}
+              disabled={isApprovedTrendyolMapping}
             />
           </div>
           <div>
@@ -1579,6 +1611,9 @@ export function ProductTrendyolMappingSection({
                 valueId: null,
                 custom: ""
               };
+              const attrLocked =
+                isApprovedTrendyolMapping &&
+                Boolean(ca.isSlicer || ca.isVariantable);
               return (
                 <div
                   key={ca.attributeId}
@@ -1601,6 +1636,11 @@ export function ProductTrendyolMappingSection({
                         Varyant
                       </span>
                     )}
+                    {ca.isSlicer && (
+                      <span className="rounded bg-fuchsia-900/50 px-1.5 py-0.5 text-[10px] font-medium text-fuchsia-200">
+                        Slicer
+                      </span>
+                    )}
                   </div>
                   {ca.values.length > 0 && (
                     <div className="mb-2">
@@ -1608,6 +1648,7 @@ export function ProductTrendyolMappingSection({
                       <select
                         className="input mt-1 text-sm"
                         value={st.valueId ?? ""}
+                        disabled={attrLocked}
                         onChange={(e) => {
                           const v = e.target.value;
                           setAttrState((prev) => ({
@@ -1639,6 +1680,8 @@ export function ProductTrendyolMappingSection({
                       <input
                         className="input mt-1 text-sm"
                         value={st.custom}
+                        readOnly={attrLocked}
+                        disabled={attrLocked}
                         onChange={(e) =>
                           setAttrState((prev) => ({
                             ...prev,

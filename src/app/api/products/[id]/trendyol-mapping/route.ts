@@ -14,6 +14,7 @@ import { getCargoCompaniesForStore } from "@/lib/trendyol/getCargoCompaniesForSt
 import { Prisma } from "@prisma/client";
 import { isFeatureEnabled, FEATURE_FLAGS } from "@/lib/featureFlags";
 import { categoryRequiresOrigin } from "@/lib/trendyolOriginRequired";
+import { readCategoryAttrIsSlicer } from "@/lib/trendyolMappingReadiness";
 
 type Params = { params: { id: string } };
 
@@ -35,6 +36,8 @@ function serializeMapping(m: Record<string, unknown>) {
     useProductPrice: (m.useProductPrice as boolean) ?? true,
     useProductStock: (m.useProductStock as boolean) ?? true,
     publishStatus: (m.publishStatus as string) ?? "draft",
+    approvalState: (m.approvalState as string) ?? "UNAPPROVED",
+    trendyolContentId: (m.trendyolContentId as number) ?? null,
     publishedAt: (m.publishedAt as Date | null)?.toISOString?.() ?? null,
     unpublishedAt: (m.unpublishedAt as Date | null)?.toISOString?.() ?? null,
     archivedAt: (m.archivedAt as Date | null)?.toISOString?.() ?? null,
@@ -204,6 +207,7 @@ export async function GET(request: Request, { params }: Params) {
     isRequired: boolean;
     isVariantable: boolean;
     allowCustom: boolean;
+    isSlicer: boolean;
     values: Array<{
       attributeValueId: number;
       attributeValue: string;
@@ -213,7 +217,15 @@ export async function GET(request: Request, { params }: Params) {
   if (effectiveCategoryId != null) {
     const attrs = await prisma.trendyolCategoryAttribute.findMany({
       where: { categoryId: effectiveCategoryId },
-      include: {
+      select: {
+        id: true,
+        categoryId: true,
+        attributeId: true,
+        attributeName: true,
+        isRequired: true,
+        isVariantable: true,
+        allowCustom: true,
+        rawData: true,
         values: {
           orderBy: { attributeValue: "asc" }
         }
@@ -229,6 +241,7 @@ export async function GET(request: Request, { params }: Params) {
       isRequired: attr.isRequired,
       isVariantable: attr.isVariantable,
       allowCustom: attr.allowCustom,
+      isSlicer: readCategoryAttrIsSlicer(attr.rawData),
       values: attr.values.map((v) => ({
         attributeValueId: v.attributeValueId,
         attributeValue: v.attributeValue
