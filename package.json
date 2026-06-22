@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "ensure-superuser": "node scripts/ensure-superuser.js",
-    "backfill:vat-rate": "node scripts/backfill-line-vat-rate.js"
+    "backfill:vat-rate": "node scripts/backfill-line-vat-rate.js",
+    "backfill:mapping-approval-state": "node scripts/backfill-mapping-approval-state.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

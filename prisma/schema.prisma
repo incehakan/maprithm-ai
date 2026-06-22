@@ -905,6 +905,11 @@ model TrendyolFinanceLine {
   @@index([storeId, orderNumber])
 }
 
+enum ProductMappingApprovalState {
+  UNAPPROVED
+  APPROVED
+}
+
 model ProductMarketplaceMapping {
   id                  String   @id @default(uuid()) @db.Uuid
   productId           String   @db.Uuid
@@ -930,6 +935,9 @@ model ProductMarketplaceMapping {
   useProductPrice     Boolean  @default(true)
   useProductStock     Boolean  @default(true)
   publishStatus       String   @default("draft")
+  approvalState       ProductMappingApprovalState @default(UNAPPROVED)
+  /// V2 onaylı içerik güncelleme (content-bulk-update) için Trendyol contentId
+  trendyolContentId   Int?
   publishedAt         DateTime?
   unpublishedAt       DateTime?
   archivedAt          DateTime?

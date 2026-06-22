@@ -353,7 +353,7 @@ export async function syncTrendyolBatchResultForUser(
           ...(newStatus === "archived" ? { archivedAt: syncNow } : {}),
           ...(newStatus === "published" ? { archivedAt: null, unpublishedAt: null } : {}),
           ...(newStatus === "published" && !isPriceStockBatch
-            ? { publishedAt: syncNow }
+            ? { publishedAt: syncNow, approvalState: "APPROVED" }
             : {})
         }
       });
