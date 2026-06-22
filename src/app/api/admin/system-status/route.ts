@@ -3,8 +3,16 @@ import { prisma } from "@/lib/prisma";
 import { requireSystemAdmin } from "@/lib/requireSystemAdmin";
 import { validateRuntimeConfig } from "@/lib/runtimeConfig";
 import { getOrderSyncJobsHealthSnapshot } from "@/lib/trendyolOrderBackgroundSync";
+import { FEATURE_FLAGS, isFeatureEnabled } from "@/lib/featureFlags";
 
 export const dynamic = "force-dynamic";
+
+const V2_PUBLISH_ACTIONS = [
+  "TRENDYOL_PUBLISH_BATCH_STARTED",
+  "TRENDYOL_PUBLISH_ITEM_SUCCEEDED",
+  "TRENDYOL_PUBLISH_ITEM_FAILED",
+  "TRENDYOL_PUBLISH_BATCH_COMPLETED"
+] as const;
 
 export async function GET() {
   try {
@@ -14,7 +22,7 @@ export async function GET() {
   }
 
   const runtime = validateRuntimeConfig({ strict: false });
-  const [jobHealth, orderSyncState, xmlSyncInfo, refSyncState, recentErrors] =
+  const [jobHealth, orderSyncState, xmlSyncInfo, refSyncState, recentErrors, activeStores] =
     await Promise.all([
       getOrderSyncJobsHealthSnapshot(),
       prisma.storeOrderSyncState.findMany({
@@ -55,8 +63,50 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
         take: 20,
         select: { id: true, action: true, message: true, createdAt: true, storeId: true }
+      }),
+      prisma.store.findMany({
+        where: { status: "active" },
+        select: { id: true, name: true, featureFlags: true }
       })
     ]);
+
+  const productV2Stores = activeStores.filter((s) =>
+    isFeatureEnabled(s, FEATURE_FLAGS.PRODUCT_V2)
+  );
+
+  const productV2Rollout = await Promise.all(
+    productV2Stores.map(async (store) => {
+      const recent = await prisma.activityLog.findFirst({
+        where: {
+          storeId: store.id,
+          action: { in: [...V2_PUBLISH_ACTIONS] }
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          action: true,
+          message: true,
+          createdAt: true
+        }
+      });
+      const lastFailed = await prisma.activityLog.findFirst({
+        where: {
+          storeId: store.id,
+          action: "TRENDYOL_PUBLISH_ITEM_FAILED"
+        },
+        orderBy: { createdAt: "desc" },
+        select: { message: true, createdAt: true }
+      });
+      return {
+        storeId: store.id,
+        storeName: store.name,
+        lastV2ActivityAt: recent?.createdAt.toISOString() ?? null,
+        lastV2ActivityAction: recent?.action ?? null,
+        lastV2ActivityMessage: recent?.message?.slice(0, 240) ?? null,
+        lastV2FailureAt: lastFailed?.createdAt.toISOString() ?? null,
+        lastV2FailureMessage: lastFailed?.message?.slice(0, 240) ?? null
+      };
+    })
+  );
 
   return NextResponse.json({
     success: true,
@@ -81,6 +131,10 @@ export async function GET() {
       referenceSyncMessage: refSyncState?.lastSyncMessage ?? null
     },
     recentErrors,
+    productV2Rollout: {
+      enabledStoreCount: productV2Stores.length,
+      stores: productV2Rollout
+    },
     timestamp: new Date().toISOString()
   });
 }

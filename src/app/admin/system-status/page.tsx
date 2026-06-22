@@ -38,6 +38,18 @@ type StatusPayload = {
     createdAt: string;
     storeId: string;
   }>;
+  productV2Rollout?: {
+    enabledStoreCount: number;
+    stores: Array<{
+      storeId: string;
+      storeName: string;
+      lastV2ActivityAt: string | null;
+      lastV2ActivityAction: string | null;
+      lastV2ActivityMessage: string | null;
+      lastV2FailureAt: string | null;
+      lastV2FailureMessage: string | null;
+    }>;
+  };
   timestamp: string;
 };
 
@@ -165,6 +177,43 @@ export default function AdminSystemStatusPage() {
               </div>
             </PanelSurface>
           </div>
+
+          {data.productV2Rollout && (
+            <PanelSurface>
+              <SectionHeader
+                title={`Trendyol PRODUCT_V2 rollout (${data.productV2Rollout.enabledStoreCount} mağaza)`}
+              />
+              <div className="space-y-2 text-xs">
+                {data.productV2Rollout.stores.length === 0 ? (
+                  <div className="text-slate-500">
+                    PRODUCT_V2 açık mağaza yok.
+                  </div>
+                ) : (
+                  data.productV2Rollout.stores.map((s) => (
+                    <div
+                      key={s.storeId}
+                      className="rounded-md border border-white/10 bg-white/[0.02] px-3 py-2"
+                    >
+                      <div className="font-medium text-slate-200">{s.storeName}</div>
+                      <div className="text-slate-400">
+                        Son aktivite: {fmt(s.lastV2ActivityAt)}{" "}
+                        {s.lastV2ActivityAction ? `· ${s.lastV2ActivityAction}` : ""}
+                      </div>
+                      {s.lastV2ActivityMessage ? (
+                        <div className="text-slate-500">{s.lastV2ActivityMessage}</div>
+                      ) : null}
+                      {s.lastV2FailureAt ? (
+                        <div className="text-amber-400/90">
+                          Son hata: {fmt(s.lastV2FailureAt)}
+                          {s.lastV2FailureMessage ? ` — ${s.lastV2FailureMessage}` : ""}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </PanelSurface>
+          )}
 
           <PanelSurface>
             <SectionHeader title="Recent Critical Failures" />
