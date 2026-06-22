@@ -280,7 +280,7 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="AI Commerce Control Center"
+        title="AI Ticaret Kontrol Merkezi"
         subtitle="E-ticaret performansınızı, sipariş akışınızı ve ürün sağlığınızı tek merkezden yönetin."
       />
 
@@ -289,7 +289,7 @@ export default async function DashboardPage() {
         <div className="absolute -bottom-10 left-1/3 h-28 w-28 rounded-full bg-cyan-400/20 blur-3xl" />
         <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.18em] text-indigo-100/80">Executive Overview</div>
+            <div className="text-xs uppercase tracking-[0.18em] text-indigo-100/80">Yönetici Özeti</div>
             <h2 className="mt-2 text-2xl font-semibold text-white">Bugün operasyonların merkezindesin</h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-200/85">
               Sipariş, gelir ve ürün sağlığı metrikleri tek bakışta. Kritik bölgeler önce göze çarpar.
@@ -308,19 +308,19 @@ export default async function DashboardPage() {
           value={String(ordersStats.todayOrderCount)}
           tone="important"
           icon={ShoppingBag}
-          trend="Dune gore +12%"
+          trend="Düne göre +12%"
         />
         <KPIStatCard
           label="Bugünkü Ciro"
           value={`₺${ordersStats.todayRevenue.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}`}
           tone="important"
           icon={CircleDollarSign}
-          trend="Marj artisi +4.6%"
+          trend="Marj artışı +4,6%"
         />
         <KPIStatCard
           label="Bekleyen Sipariş"
           value={String(ordersStats.pendingOrderCount)}
-          detail="Created / Picking / Invoiced"
+          detail="Oluşturuldu / Hazırlanıyor / Faturalandı"
           tone="warning"
           icon={AlertTriangle}
         />

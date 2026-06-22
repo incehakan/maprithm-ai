@@ -154,7 +154,7 @@ function SettingsPageContent() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Ayarlar</h1>
         <p className="text-sm text-slate-400">
-          Varsayılan ticari ayarlarınızı ve export tercihlerinizi yönetin.
+          Varsayılan ticari ayarlarınızı ve dışa aktarma tercihlerinizi yönetin.
         </p>
       </div>
 
@@ -166,7 +166,7 @@ function SettingsPageContent() {
           Fiyatlandırma
         </button>
         <button className={`btn-secondary ${activeTab === "export" ? "!border-indigo-400/50 !bg-indigo-500/20" : ""}`} onClick={() => setActiveTab("export")}>
-          Export
+          Dışa Aktarma
         </button>
       </div>
 
@@ -305,20 +305,20 @@ function SettingsPageContent() {
           </Card>
         )}
 
-        {/* Export Fallback Değerleri */}
+        {/* Dışa aktarma yedek değerleri */}
         {activeTab === "export" && (
           <Card className="space-y-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
-            Export Fallback Değerleri
+            Dışa Aktarma Yedek Değerleri
           </h2>
 
           <p className="text-xs text-slate-400">
-            Trendyol ve diğer pazaryeri exportlarında, ürünlerde bu alanlar boşsa aşağıdaki değerler kullanılır.
+            Trendyol ve diğer pazaryeri dışa aktarmalarında, ürünlerde bu alanlar boşsa aşağıdaki değerler kullanılır.
           </p>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="label">Fallback Marka</label>
+              <label className="label">Yedek Marka</label>
               <Input
                 type="text"
                 value={fallbackBrand}
@@ -330,7 +330,7 @@ function SettingsPageContent() {
               </p>
             </div>
             <div>
-              <label className="label">Fallback Kategori</label>
+              <label className="label">Yedek Kategori</label>
               <Input
                 type="text"
                 value={fallbackCategory}

@@ -41,7 +41,7 @@ export function isGroup(item: SidebarMenuItem): item is SidebarMenuGroup {
 export const sidebarMenuConfig: SidebarMenuItem[] = [
   {
     key: "dashboard",
-    label: "Dashboard",
+    label: "Panel",
     href: "/dashboard",
     icon: Gauge
   },
@@ -142,7 +142,7 @@ export const sidebarMenuConfig: SidebarMenuItem[] = [
       },
       {
         key: "settings-reference-sync",
-        label: "Referans Sync Yönetimi",
+        label: "Referans Senkron Yönetimi",
         href: "/admin/reference-sync",
         systemAdminOnly: true
       },

@@ -27,19 +27,19 @@ export default async function SystemAdminLayout({
           <h1 className="text-lg font-semibold text-white">Sistem Yönetimi</h1>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/admin/system-connections" className="btn-secondary">
-              System Connections
+              Sistem Bağlantıları
             </Link>
             <Link href="/admin/reference-sync" className="btn-secondary">
-              Reference Sync
+              Referans Senkronu
             </Link>
             <Link href="/admin/system-status" className="btn-secondary">
-              System Status
+              Sistem Durumu
             </Link>
             <Link href="/admin/test-lab" className="btn-secondary">
-              Operation Test Lab
+              İşlem Test Laboratuvarı
             </Link>
             <Link href="/dashboard" className="btn-secondary">
-              Dashboard
+              Panel
             </Link>
           </div>
         </PanelSurface>
