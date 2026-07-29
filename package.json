@@ -12,7 +12,8 @@
     "prisma:studio": "prisma studio",
     "ensure-superuser": "node scripts/ensure-superuser.js",
     "backfill:vat-rate": "node scripts/backfill-line-vat-rate.js",
-    "backfill:mapping-approval-state": "node scripts/backfill-mapping-approval-state.js"
+    "backfill:mapping-approval-state": "node scripts/backfill-mapping-approval-state.js",
+    "backfill:content-id": "node scripts/backfill-trendyol-content-id.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -43,6 +44,7 @@
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.2.5",
+    "playwright": "^1.49.1",
     "postcss": "^8.4.39",
     "prisma": "^5.20.0",
     "typescript": "^5.5.3"

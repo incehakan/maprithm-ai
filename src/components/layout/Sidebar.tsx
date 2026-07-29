@@ -16,6 +16,8 @@ import {
 } from "@/components/layout/sidebar-menu-config";
 import { SidebarGroupItem, SidebarLeafItem } from "@/components/layout/SidebarGroupItem";
 
+const EMPTY_PERMISSION_KEYS: string[] = [];
+
 function canAccessLeaf(
   leaf: SidebarMenuLeaf,
   permissionKeys: string[],
@@ -68,7 +70,10 @@ export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const { open, setOpen } = useMobileNav();
-  const permissionKeys = (session?.permissionKeys as string[] | undefined) ?? [];
+  const permissionKeys = useMemo(
+    () => (session?.permissionKeys as string[] | undefined) ?? EMPTY_PERMISSION_KEYS,
+    [session?.permissionKeys]
+  );
   const isSystemAdmin = Boolean((session as any)?.isSystemAdmin);
 
   const menu = useMemo(
@@ -81,9 +86,15 @@ export function Sidebar() {
   useEffect(() => {
     const autoOpen = collectAutoOpenGroupKeys(menu, pathname);
     setOpenGroups((prev) => {
+      let changed = false;
       const next = { ...prev };
-      for (const key of autoOpen) next[key] = true;
-      return next;
+      for (const key of autoOpen) {
+        if (!next[key]) {
+          next[key] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
   }, [menu, pathname]);
 

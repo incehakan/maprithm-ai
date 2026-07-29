@@ -1,19 +1,7 @@
-import originCountries from "@/data/trendyol-origin-countries.json";
+import iso3166Countries from "@/data/iso3166-alpha2-countries.json";
 
-export type TrendyolOriginCountryEntry = { code: string; name: string };
+export type OriginCountryEntry = { code: string; name: string };
 
-/** Resmi Trendyol V1 createProducts menşei kod listesi (developers.trendyol.com/docs/ürün-menşei-değerleri). */
-export const OFFICIAL_TRENDYOL_ORIGIN_COUNTRIES: TrendyolOriginCountryEntry[] =
-  originCountries as TrendyolOriginCountryEntry[];
-
-const nameToCode = new Map(
-  OFFICIAL_TRENDYOL_ORIGIN_COUNTRIES.map((c) => [
-    c.name.trim().toLocaleLowerCase("tr-TR"),
-    c.code
-  ])
-);
-
-export function resolveOriginCodeFromApiName(name: string): string | null {
-  const key = name.trim().toLocaleLowerCase("tr-TR");
-  return nameToCode.get(key) ?? null;
-}
+/** ISO 3166-1 alpha-2 ülke kodları — Trendyol createProducts origin alanı ile uyumlu. */
+export const ISO3166_ALPHA2_COUNTRIES: OriginCountryEntry[] =
+  iso3166Countries as OriginCountryEntry[];

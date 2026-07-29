@@ -42,7 +42,7 @@ _(Faz 1 ilerledikçe doldurulacak.)_
 - [x] Görev 5: `updateUnapprovedProducts` — onaysız içerik güncelleme yolu
 - [x] Görev 6: `updateApprovedProductContent` + onaylı ürün UI kilidi
 - [x] Görev 7: V2 varyant/teslimat API (`trendyolProductApiV2.ts`)
-- [x] Görev 8: `filterApprovedProducts` bağlantı testi seçeneği (`useProductV2Filter`)
+- [ ] Görev 8: ⚠️ kısmi — sadece API iskeleti (`trendyolProductApiV2.ts`, `useProductV2Filter`); ekranlar ve asıl `filterProducts` kullanım noktaları V2'ye bağlanmadı
 - [x] Görev 9: Arşiv/silme V2 path yönlendirmesi
 - [x] Görev 10: `unlockTrendyolProduct()` backend
 - [x] Görev 11: TR `vatRate` enum (`trendyolVatRate.ts` + prePublish)

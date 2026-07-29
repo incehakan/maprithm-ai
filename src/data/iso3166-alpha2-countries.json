@@ -13,7 +13,7 @@
   },
   {
     "code": "AG",
-    "name": "Antigua Ve Barbuda"
+    "name": "Antigua ve Barbuda"
   },
   {
     "code": "AI",
@@ -56,12 +56,16 @@
     "name": "Aruba"
   },
   {
+    "code": "AX",
+    "name": "Åland Adaları"
+  },
+  {
     "code": "AZ",
     "name": "Azerbaycan"
   },
   {
     "code": "BA",
-    "name": "Bosna Hersek"
+    "name": "Bosna-Hersek"
   },
   {
     "code": "BB",
@@ -96,6 +100,10 @@
     "name": "Benin"
   },
   {
+    "code": "BL",
+    "name": "Saint Barthelemy"
+  },
+  {
     "code": "BM",
     "name": "Bermuda"
   },
@@ -108,16 +116,20 @@
     "name": "Bolivya"
   },
   {
+    "code": "BQ",
+    "name": "Karayip Hollandası"
+  },
+  {
     "code": "BR",
     "name": "Brezilya"
   },
   {
     "code": "BS",
-    "name": "Bahama Adaları"
+    "name": "Bahamalar"
   },
   {
     "code": "BT",
-    "name": "Bhutan"
+    "name": "Butan"
   },
   {
     "code": "BV",
@@ -125,11 +137,11 @@
   },
   {
     "code": "BW",
-    "name": "Botswana"
+    "name": "Botsvana"
   },
   {
     "code": "BY",
-    "name": "Beyaz Rusya"
+    "name": "Belarus"
   },
   {
     "code": "BZ",
@@ -145,7 +157,7 @@
   },
   {
     "code": "CD",
-    "name": "Kongo Demokratik Cumhuriyeti"
+    "name": "Kongo - Kinşasa"
   },
   {
     "code": "CF",
@@ -153,7 +165,7 @@
   },
   {
     "code": "CG",
-    "name": "Kongo"
+    "name": "Kongo - Brazavil"
   },
   {
     "code": "CH",
@@ -161,11 +173,11 @@
   },
   {
     "code": "CI",
-    "name": "Fildişi Kıyısı"
+    "name": "Côte d’Ivoire"
   },
   {
     "code": "CK",
-    "name": "Cook Adası"
+    "name": "Cook Adaları"
   },
   {
     "code": "CL",
@@ -193,7 +205,11 @@
   },
   {
     "code": "CV",
-    "name": "Cape Verde"
+    "name": "Cabo Verde"
+  },
+  {
+    "code": "CW",
+    "name": "Curaçao"
   },
   {
     "code": "CX",
@@ -201,7 +217,7 @@
   },
   {
     "code": "CY",
-    "name": "Güney Kıbrıs"
+    "name": "Kıbrıs"
   },
   {
     "code": "CZ",
@@ -244,6 +260,10 @@
     "name": "Mısır"
   },
   {
+    "code": "EH",
+    "name": "Batı Sahra"
+  },
+  {
     "code": "ER",
     "name": "Eritre"
   },
@@ -269,7 +289,7 @@
   },
   {
     "code": "FM",
-    "name": "Mikronezya Federal Devletleri"
+    "name": "Mikronezya"
   },
   {
     "code": "FO",
@@ -285,7 +305,7 @@
   },
   {
     "code": "GB",
-    "name": "İngiltere"
+    "name": "Birleşik Krallık"
   },
   {
     "code": "GD",
@@ -296,12 +316,20 @@
     "name": "Gürcistan"
   },
   {
+    "code": "GF",
+    "name": "Fransız Guyanası"
+  },
+  {
+    "code": "GG",
+    "name": "Guernsey"
+  },
+  {
     "code": "GH",
     "name": "Gana"
   },
   {
     "code": "GI",
-    "name": "Gibraltar"
+    "name": "Cebelitarık"
   },
   {
     "code": "GL",
@@ -314,6 +342,10 @@
   {
     "code": "GN",
     "name": "Gine"
+  },
+  {
+    "code": "GP",
+    "name": "Guadeloupe"
   },
   {
     "code": "GQ",
@@ -345,7 +377,7 @@
   },
   {
     "code": "HK",
-    "name": "Hong Kong"
+    "name": "Çin Hong Kong ÖİB"
   },
   {
     "code": "HM",
@@ -380,12 +412,16 @@
     "name": "İsrail"
   },
   {
+    "code": "IM",
+    "name": "Man Adası"
+  },
+  {
     "code": "IN",
     "name": "Hindistan"
   },
   {
     "code": "IO",
-    "name": "Britanya Hint Okyanusu Bölgesi"
+    "name": "Britanya Hint Okyanusu Toprakları"
   },
   {
     "code": "IQ",
@@ -402,6 +438,10 @@
   {
     "code": "IT",
     "name": "İtalya"
+  },
+  {
+    "code": "JE",
+    "name": "Jersey"
   },
   {
     "code": "JM",
@@ -432,16 +472,12 @@
     "name": "Kiribati"
   },
   {
-    "code": "KK",
-    "name": "Kuzey Kıbrıs Tc"
-  },
-  {
     "code": "KM",
     "name": "Komorlar"
   },
   {
     "code": "KN",
-    "name": "Santa Kitts Ve Nevis"
+    "name": "Saint Kitts ve Nevis"
   },
   {
     "code": "KP",
@@ -473,7 +509,7 @@
   },
   {
     "code": "LC",
-    "name": "Santa Lucia"
+    "name": "Saint Lucia"
   },
   {
     "code": "LI",
@@ -512,12 +548,20 @@
     "name": "Fas"
   },
   {
+    "code": "MC",
+    "name": "Monako"
+  },
+  {
     "code": "MD",
-    "name": "Moldova Cumhuriyeti"
+    "name": "Moldova"
   },
   {
     "code": "ME",
     "name": "Karadağ"
+  },
+  {
+    "code": "MF",
+    "name": "Saint Martin"
   },
   {
     "code": "MG",
@@ -537,7 +581,7 @@
   },
   {
     "code": "MM",
-    "name": "Mıanmar"
+    "name": "Myanmar (Burma)"
   },
   {
     "code": "MN",
@@ -545,11 +589,15 @@
   },
   {
     "code": "MO",
-    "name": "Makao"
+    "name": "Çin Makao ÖİB"
   },
   {
     "code": "MP",
-    "name": "Kuzey Marina Adaları"
+    "name": "Kuzey Mariana Adaları"
+  },
+  {
+    "code": "MQ",
+    "name": "Martinik"
   },
   {
     "code": "MR",
@@ -569,7 +617,7 @@
   },
   {
     "code": "MV",
-    "name": "Maldiv Adaları"
+    "name": "Maldivler"
   },
   {
     "code": "MW",
@@ -589,7 +637,7 @@
   },
   {
     "code": "NA",
-    "name": "Namibia"
+    "name": "Namibya"
   },
   {
     "code": "NC",
@@ -653,7 +701,7 @@
   },
   {
     "code": "PG",
-    "name": "Papua-Yeni Gine"
+    "name": "Papua Yeni Gine"
   },
   {
     "code": "PH",
@@ -669,15 +717,19 @@
   },
   {
     "code": "PM",
-    "name": "Saint Pierre and Miquelon"
+    "name": "Saint Pierre ve Miquelon"
   },
   {
     "code": "PN",
     "name": "Pitcairn Adaları"
   },
   {
+    "code": "PR",
+    "name": "Porto Riko"
+  },
+  {
     "code": "PS",
-    "name": "Filistin"
+    "name": "Filistin Bölgeleri"
   },
   {
     "code": "PT",
@@ -685,7 +737,7 @@
   },
   {
     "code": "PW",
-    "name": "Palau Adaları"
+    "name": "Palau"
   },
   {
     "code": "PY",
@@ -694,6 +746,10 @@
   {
     "code": "QA",
     "name": "Katar"
+  },
+  {
+    "code": "RE",
+    "name": "Reunion"
   },
   {
     "code": "RO",
@@ -705,7 +761,7 @@
   },
   {
     "code": "RU",
-    "name": "Rusya Federasyonu"
+    "name": "Rusya"
   },
   {
     "code": "RW",
@@ -717,7 +773,7 @@
   },
   {
     "code": "SB",
-    "name": "Solomon Adalary"
+    "name": "Solomon Adaları"
   },
   {
     "code": "SC",
@@ -742,6 +798,10 @@
   {
     "code": "SI",
     "name": "Slovenya"
+  },
+  {
+    "code": "SJ",
+    "name": "Svalbard ve Jan Mayen"
   },
   {
     "code": "SK",
@@ -773,11 +833,15 @@
   },
   {
     "code": "ST",
-    "name": "Sao Tome"
+    "name": "Sao Tome ve Principe"
   },
   {
     "code": "SV",
     "name": "El Salvador"
+  },
+  {
+    "code": "SX",
+    "name": "Sint Maarten"
   },
   {
     "code": "SY",
@@ -785,7 +849,11 @@
   },
   {
     "code": "SZ",
-    "name": "Svaziland"
+    "name": "Esvatini"
+  },
+  {
+    "code": "TC",
+    "name": "Turks ve Caicos Adaları"
   },
   {
     "code": "TD",
@@ -813,7 +881,7 @@
   },
   {
     "code": "TL",
-    "name": "Doğu Timor"
+    "name": "Timor-Leste"
   },
   {
     "code": "TM",
@@ -833,7 +901,7 @@
   },
   {
     "code": "TT",
-    "name": "Trinidad Ve Tobago"
+    "name": "Trinidad ve Tobago"
   },
   {
     "code": "TV",
@@ -857,7 +925,7 @@
   },
   {
     "code": "UM",
-    "name": "Amerikan Küçük Dış Adaları"
+    "name": "ABD Küçük Harici Adaları"
   },
   {
     "code": "US",
@@ -877,7 +945,7 @@
   },
   {
     "code": "VC",
-    "name": "Santa Vincent Ve Grenadines"
+    "name": "Saint Vincent ve Grenadinler"
   },
   {
     "code": "VE",
@@ -885,11 +953,11 @@
   },
   {
     "code": "VG",
-    "name": "İngiliz Virgin Adaları"
+    "name": "Britanya Virjin Adaları"
   },
   {
     "code": "VI",
-    "name": "Amerikan Virgin Adaları"
+    "name": "ABD Virjin Adaları"
   },
   {
     "code": "VN",
@@ -901,23 +969,15 @@
   },
   {
     "code": "WF",
-    "name": "Wallis ve Futuna Adaları"
+    "name": "Wallis ve Futuna"
   },
   {
     "code": "WS",
-    "name": "Batı Samoa"
-  },
-  {
-    "code": "XC",
-    "name": "Ceuta"
+    "name": "Samoa"
   },
   {
     "code": "XK",
     "name": "Kosova"
-  },
-  {
-    "code": "XL",
-    "name": "Melilla"
   },
   {
     "code": "YE",

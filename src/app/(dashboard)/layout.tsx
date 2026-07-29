@@ -23,7 +23,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <AppSessionProvider>
+    <AppSessionProvider session={session}>
       <AppShell>
         <MobileNavProvider>
           <div className="flex min-h-screen">

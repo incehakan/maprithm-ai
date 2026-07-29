@@ -27,8 +27,7 @@ Ortam **env var ile override edilmiyor**; tamamen DB'deki bağlantı kaydından 
 
 1. İlgili mağazanın `MarketplaceConnection` kaydında `environment = "stage"` olmalı (UI veya doğrudan DB).
 2. Sistem referans senkronu için `SystemMarketplaceConnection.environment = "stage"` gerekir.
-3. Menşei lookup endpoint'i (`/integration/ecgw/v1/{sellerId}/lookup/origins`) aynı base URL üzerinden stage'de de erişilebilir.
-4. Feature flag (`Store.featureFlags.origin_field_enabled`) açılmadan origin payload/UI davranışı değişmez.
+3. Feature flag (`Store.featureFlags.origin_field_enabled`) açılmadan origin payload/UI davranışı değişmez.
 
 **Sonuç:** Ortam ayrımı doğru yapılandırılmış; STAGE testleri için ek kod değil, bağlantı kayıtlarında `environment` alanının `stage` yapılması yeterli.
 
@@ -57,7 +56,7 @@ Faz 0'da `normalizeLineVatBase` için `scripts/manual-test-vat-rate.js` ile manu
 
 ## 3. Origin Alanı Doğrulaması
 
-Kaynak: [Ürün Aktarma V1 (createProducts)](https://developers.trendyol.com/docs/ürün-aktarma-v2createproducts), [Menşei Değerleri Listesi](https://developers.trendyol.com/docs/ürün-menşei-değerleri.md), [Menşei Listesi API](https://developers.trendyol.com/reference/autoft-get-origins), changelog 13.05.2026.
+Kaynak: [Ürün Aktarma V1 (createProducts)](https://developers.trendyol.com/docs/ürün-aktarma-v2createproducts), [Menşei Değerleri Listesi](https://developers.trendyol.com/docs/ürün-menşei-değerleri.md), changelog 13.05.2026.
 
 ### createProducts (V1) — `origin` alanı
 
@@ -100,31 +99,13 @@ Endpoint: `POST /integration/product/sellers/{sellerId}/products`
 Stage: `https://stageapigw.trendyol.com/integration/product/sellers/{sellerId}/products`  
 Production: `https://apigw.trendyol.com/integration/product/sellers/{sellerId}/products`
 
-### Menşei Değerleri Listesi
+### Menşei kod listesi (uygulama kaynağı)
 
-- **Statik referans (V1 kodları):** [ürün-menşei-değerleri](https://developers.trendyol.com/docs/ürün-menşei-değerleri.md) — `code` (2 harf) + Türkçe `name` tablosu (ör. `TR` → Türkiye).
-- **API referans servisi (lookup):**
+Trendyol V1 `createProducts` örnek payload'ında `"origin": "AD"` (Andorra, ISO 3166-1 alpha-2) kullanılır. Uygulama menşei referans tablosunu (`TrendyolOriginCountry`) **statik ISO 3166-1 alpha-2** kod/isim listesinden doldurur (`src/data/iso3166-alpha2-countries.json`).
 
-| | |
-|--|--|
-| Method | `GET` |
-| Path | `/integration/ecgw/v1/{sellerId}/lookup/origins` |
-| Stage base | `https://stageapigw.trendyol.com/integration/ecgw` |
-| Production base | `https://apigw.trendyol.com/integration/ecgw` |
-| Auth | Basic (API Key + Secret), zorunlu header'lar: `x-clientip`, `x-correlationid`, `x-agentname` |
+**Kullanılmayan kaynak:** `/integration/ecgw/v1/{sellerId}/lookup/origins` — bu uç Trendyol **İhracat Merkezi** (ecgw) API ailesine aittir; ana pazaryeri `createProducts` / `updateProduct` akışı için doğrulanmamıştır ve senkron kodunda referans alınmaz.
 
-Örnek response:
-
-```json
-{
-  "items": [
-    { "name": "Almanya" },
-    { "name": "Türkiye" }
-  ]
-}
-```
-
-**Not:** API yanıtı yalnızca Türkçe `name` döner; V1 `createProducts` payload'ı ise 2 harfli `code` bekler. Uygulama kod eşlemesini resmi statik listeyle yapar; API çağrısı isim doğrulama / senkron için kullanılır.
+Trendyol'un resmi [Menşei Değerleri Listesi](https://developers.trendyol.com/docs/ürün-menşei-değerleri.md) dokümanı da aynı 2 harfli kod formatını kullanır; kod seti ISO 3166-1 alpha-2 ile uyumludur (ör. `TR`, `DE`, `CN`).
 
 ### Zorunlu kategori tespiti (uygulama)
 
