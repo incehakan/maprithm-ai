@@ -83,7 +83,7 @@ export function validatePricingInput(input: Partial<PricingInput>): string | nul
     return "Kargo maliyeti 0 veya daha büyük olmalıdır.";
   }
   if (input.vatRate === undefined || input.vatRate < 0 || input.vatRate > 100) {
-    return "KDV oranı 0-100 arasında olmalıdır.";
+    return "KDV oranı geçersiz. Trendyol için geçerli değerler: 0, 1, 10, 20.";
   }
   if (input.targetProfitRate === undefined || input.targetProfitRate < 0) {
     return "Hedef kâr oranı 0 veya daha büyük olmalıdır.";

@@ -8,9 +8,11 @@ import {
 } from "@/lib/trendyolOrderIngestFromPackage";
 import {
   fetchTrendyolShipmentPackages,
+  fetchTrendyolShipmentPackagesStream,
   type FetchTrendyolShipmentPackagesParams,
   type TrendyolOrdersPageResponse
 } from "@/lib/trendyolShipmentPackages";
+import { FEATURE_FLAGS, isFeatureEnabled } from "@/lib/featureFlags";
 
 const MS_DAY = 86_400_000;
 const SYNC_RANGE_DAYS = 30;
@@ -309,4 +311,71 @@ export async function syncTrendyolOrdersForStore(params: {
   });
 
   return { upsertedPackages: upserted };
+}
+
+/**
+ * ORDER_STREAM feature flag açık mağazalar için cursor tabanlı sipariş çekme.
+ * getShipmentPackages'in 10K limit sorununu aşar.
+ * Periyodik background sync job'larından çağrılır.
+ */
+export async function fetchTrendyolOrdersViaStream(params: {
+  userId: string;
+  storeId: string;
+  startDateMs: number;
+  endDateMs: number;
+  status?: string;
+}): Promise<unknown[]> {
+  // ORDER_STREAM flag kontrolü: kapalıysa eski yönteme fallback
+  const store = await prisma.store.findUnique({
+    where: { id: params.storeId },
+    select: { featureFlags: true }
+  });
+  const streamEnabled = store ? isFeatureEnabled(store, FEATURE_FLAGS.ORDER_STREAM) : false;
+  if (!streamEnabled) {
+    // Flag kapalı: mevcut page-based yöntem (geriye dönük uyumluluk)
+    return fetchAllPackagesInWindow({
+      userId: params.userId,
+      storeId: params.storeId,
+      mode: "full_order_date_windows",
+      windowStart: params.startDateMs,
+      windowEnd: params.endDateMs,
+      status: params.status,
+      orderByField: "PackageLastModifiedDate",
+      orderByDirection: "DESC"
+    });
+  }
+
+  // FLAG AÇIK: cursor tabanlı stream
+  const out: unknown[] = [];
+  let cursor: string | undefined;
+  let page = 0;
+  const MAX_PAGES = 500; // sonsuz döngü koruması
+
+  do {
+    // Trendyol: aynı endpoint'e 10 saniyede max 50 istek (stream için 5s önerilir)
+    if (page > 0) await new Promise((r) => setTimeout(r, 5_000));
+
+    const res = await fetchTrendyolShipmentPackagesStream(
+      params.userId,
+      params.storeId,
+      {
+        startDate: params.startDateMs,
+        endDate: params.endDateMs,
+        status: params.status,
+        cursor,
+        size: 200
+      }
+    );
+
+    if (!res.ok) {
+      throw new Error(`Stream sipariş çekme hatası: ${res.message}`);
+    }
+
+    const content = Array.isArray(res.data.content) ? res.data.content : [];
+    out.push(...content);
+    cursor = res.data.nextCursor ?? undefined;
+    page += 1;
+  } while (cursor && page < MAX_PAGES);
+
+  return out;
 }

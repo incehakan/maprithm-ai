@@ -184,3 +184,31 @@ export async function deleteTrendyolWebhook(params: {
     requestId: params.requestId
   });
 }
+
+export async function activateTrendyolWebhook(params: {
+  userId: string;
+  storeId: string;
+  webhookId: string;
+  requestId?: string;
+}) {
+  const sellerId = await sellerIdForStore(params.storeId);
+  const wid = params.webhookId.trim();
+  const path = `/integration/webhook/sellers/${sellerId}/webhooks/${encodeURIComponent(wid)}/activate`;
+  return trendyolPutJson<unknown>(params.userId, params.storeId, path, {}, {
+    requestId: params.requestId
+  });
+}
+
+export async function deactivateTrendyolWebhook(params: {
+  userId: string;
+  storeId: string;
+  webhookId: string;
+  requestId?: string;
+}) {
+  const sellerId = await sellerIdForStore(params.storeId);
+  const wid = params.webhookId.trim();
+  const path = `/integration/webhook/sellers/${sellerId}/webhooks/${encodeURIComponent(wid)}/deactivate`;
+  return trendyolPutJson<unknown>(params.userId, params.storeId, path, {}, {
+    requestId: params.requestId
+  });
+}
