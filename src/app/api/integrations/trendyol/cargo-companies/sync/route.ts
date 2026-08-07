@@ -3,7 +3,7 @@ import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore"
 import { syncTrendyolCargoCompanies } from "@/lib/trendyol/syncTrendyolCargoCompanies";
 
 /**
- * POST — Trendyol API’den kargo firmalarını çekip StoreTrendyolCargoCompany tablosuna yazar.
+ * POST — Trendyol API’den kargo firmalarını çekip MarketplaceCarrier tablosuna yazar.
  */
 export async function POST() {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
