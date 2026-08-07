@@ -46,6 +46,9 @@ function flattenCategories(
   return result;
 }
 
+/** Prisma/Postgres bind-variable limiti (~32767) için güvenli upsert paket boyutu. */
+const CHUNK_SIZE = 500;
+
 function chunkArray<T>(items: T[], chunkSize: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += chunkSize) {
@@ -60,6 +63,7 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
   const pageSize = 2000;
   const now = new Date();
   const seen = new Set<number>();
+  const SYSTEM_STORE_ID = "00000000-0000-0000-0000-000000000000";
 
   while (true) {
     const result = await trendyolSystemFetch<TrendyolBrandsResponse>(
@@ -69,30 +73,56 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
     const brands = result.data?.brands ?? [];
     if (brands.length === 0) break;
 
+    const normalizedPage: Array<{
+      brandId: number;
+      name: string;
+      isActive: boolean;
+      rawData: unknown;
+    }> = [];
     for (const b of brands) {
       const normalized = normalizeBrandData(b);
       if (!normalized) continue;
       seen.add(normalized.brandId);
-      await prisma.marketplaceBrand.upsert({
-        where: { storeId_platform_externalId: { storeId: "00000000-0000-0000-0000-000000000000", platform: "TRENDYOL", externalId: normalized.brandId.toString() } },
-        create: {
-          storeId: "00000000-0000-0000-0000-000000000000",
-          platform: "TRENDYOL",
-          externalId: normalized.brandId.toString(),
-          name: normalized.name,
-          isActive: normalized.isActive ?? true,
-          metadata: normalized.rawData as any,
-          createdAt: now,
-          updatedAt: now
-        },
-        update: {
-          name: normalized.name,
-          isActive: normalized.isActive ?? true,
-          metadata: normalized.rawData as any,
-          updatedAt: now
-        }
+      normalizedPage.push({
+        brandId: normalized.brandId,
+        name: normalized.name,
+        isActive: normalized.isActive ?? true,
+        rawData: normalized.rawData
       });
-      totalProcessed++;
+    }
+
+    for (let i = 0; i < normalizedPage.length; i += CHUNK_SIZE) {
+      const chunk = normalizedPage.slice(i, i + CHUNK_SIZE);
+      await prisma.$transaction(
+        chunk.map((item) =>
+          prisma.marketplaceBrand.upsert({
+            where: {
+              storeId_platform_externalId: {
+                storeId: SYSTEM_STORE_ID,
+                platform: "TRENDYOL",
+                externalId: item.brandId.toString()
+              }
+            },
+            create: {
+              storeId: SYSTEM_STORE_ID,
+              platform: "TRENDYOL",
+              externalId: item.brandId.toString(),
+              name: item.name,
+              isActive: item.isActive,
+              metadata: item.rawData as any,
+              createdAt: now,
+              updatedAt: now
+            },
+            update: {
+              name: item.name,
+              isActive: item.isActive,
+              metadata: item.rawData as any,
+              updatedAt: now
+            }
+          })
+        )
+      );
+      totalProcessed += chunk.length;
     }
 
     if (brands.length < pageSize) break;
@@ -105,11 +135,15 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
       select: { externalId: true }
     });
     const staleBrandIds = activeBrandRows
-      .map((x: any) => parseInt(x.externalId, 10))
-      .filter((id: any) => !seen.has(id));
-    for (const ids of chunkArray(staleBrandIds, 1000)) {
+      .map((x: { externalId: string }) => parseInt(x.externalId, 10))
+      .filter((id: number) => Number.isFinite(id) && !seen.has(id));
+    for (const ids of chunkArray(staleBrandIds, CHUNK_SIZE)) {
       await prisma.marketplaceBrand.updateMany({
-        where: { platform: "TRENDYOL", externalId: { in: ids.map((id: any) => id.toString()) }, isActive: true },
+        where: {
+          platform: "TRENDYOL",
+          externalId: { in: ids.map((id) => id.toString()) },
+          isActive: true
+        },
         data: { isActive: false, updatedAt: now }
       });
     }
@@ -120,6 +154,7 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
 
 export async function syncGlobalTrendyolCategories(): Promise<{ count: number }> {
   const now = new Date();
+  const SYSTEM_STORE_ID = "00000000-0000-0000-0000-000000000000";
   const result = await trendyolSystemFetch<TrendyolCategoriesResponse>(
     "/integration/product/product-categories"
   );
@@ -130,32 +165,61 @@ export async function syncGlobalTrendyolCategories(): Promise<{ count: number }>
   const seen = new Set<number>();
   let totalProcessed = 0;
 
+  const rows: Array<{
+    categoryId: number;
+    name: string;
+    parentId: string | null;
+    isActive: boolean;
+    metadata: Record<string, unknown>;
+  }> = [];
+
   for (const row of flat) {
     const normalized = normalizeCategoryData(row.rawNode);
     if (!normalized) continue;
     seen.add(normalized.categoryId);
-    await prisma.marketplaceCategory.upsert({
-      where: { storeId_platform_externalId: { storeId: "00000000-0000-0000-0000-000000000000", platform: "TRENDYOL", externalId: normalized.categoryId.toString() } },
-      create: {
-        storeId: "00000000-0000-0000-0000-000000000000",
-        platform: "TRENDYOL",
-        externalId: normalized.categoryId.toString(),
-        name: normalized.name,
-        parentId: row.parentCategoryId ? row.parentCategoryId.toString() : null,
-        isActive: normalized.isActive ?? true,
-        metadata: { ...normalized.rawData as any, isLeaf: row.isLeaf },
-        createdAt: now,
-        updatedAt: now
-      },
-      update: {
-        name: normalized.name,
-        parentId: row.parentCategoryId ? row.parentCategoryId.toString() : null,
-        isActive: normalized.isActive ?? true,
-        metadata: { ...normalized.rawData as any, isLeaf: row.isLeaf },
-        updatedAt: now
-      }
+    rows.push({
+      categoryId: normalized.categoryId,
+      name: normalized.name,
+      parentId: row.parentCategoryId ? row.parentCategoryId.toString() : null,
+      isActive: normalized.isActive ?? true,
+      metadata: { ...(normalized.rawData as object), isLeaf: row.isLeaf }
     });
-    totalProcessed++;
+  }
+
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE);
+    await prisma.$transaction(
+      chunk.map((item) =>
+        prisma.marketplaceCategory.upsert({
+          where: {
+            storeId_platform_externalId: {
+              storeId: SYSTEM_STORE_ID,
+              platform: "TRENDYOL",
+              externalId: item.categoryId.toString()
+            }
+          },
+          create: {
+            storeId: SYSTEM_STORE_ID,
+            platform: "TRENDYOL",
+            externalId: item.categoryId.toString(),
+            name: item.name,
+            parentId: item.parentId,
+            isActive: item.isActive,
+            metadata: item.metadata as any,
+            createdAt: now,
+            updatedAt: now
+          },
+          update: {
+            name: item.name,
+            parentId: item.parentId,
+            isActive: item.isActive,
+            metadata: item.metadata as any,
+            updatedAt: now
+          }
+        })
+      )
+    );
+    totalProcessed += chunk.length;
   }
 
   if (seen.size > 0) {
@@ -164,11 +228,15 @@ export async function syncGlobalTrendyolCategories(): Promise<{ count: number }>
       select: { externalId: true }
     });
     const staleCategoryIds = activeCategoryRows
-      .map((x: any) => parseInt(x.externalId, 10))
-      .filter((id: any) => !seen.has(id));
-    for (const ids of chunkArray(staleCategoryIds, 1000)) {
+      .map((x: { externalId: string }) => parseInt(x.externalId, 10))
+      .filter((id: number) => Number.isFinite(id) && !seen.has(id));
+    for (const ids of chunkArray(staleCategoryIds, CHUNK_SIZE)) {
       await prisma.marketplaceCategory.updateMany({
-        where: { platform: "TRENDYOL", externalId: { in: ids.map((id: any) => id.toString()) }, isActive: true },
+        where: {
+          platform: "TRENDYOL",
+          externalId: { in: ids.map((id) => id.toString()) },
+          isActive: true
+        },
         data: { isActive: false, updatedAt: now }
       });
     }

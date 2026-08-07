@@ -1,6 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { trendyolSystemFetch } from "@/lib/trendyolSystemFetch";
 
+/** Prisma/Postgres bind-variable limiti (~32767) için güvenli upsert paket boyutu. */
+const CHUNK_SIZE = 500;
+
+const SYSTEM_STORE_ID = "00000000-0000-0000-0000-000000000000";
+
 type AttributeValueRaw = {
   id: number;
   name: string;
@@ -51,83 +56,97 @@ export async function syncTrendyolCategoryAttributes(
     let attributeCount = 0;
     let valueCount = 0;
     const now = new Date();
-    const seenAttrIds = new Set<number>();
 
-    for (const attr of arr) {
-      const aId = attr.attribute.id;
-      seenAttrIds.add(aId);
-
-      const metadata = {
-        isVariantable: attr.varianter,
-        allowCustom: attr.allowCustom,
-        isSlicer: attr.slicer
-      };
-
-      await prisma.marketplaceAttribute.upsert({
-        where: {
-          storeId_platform_categoryId_externalId: {
-            storeId: "00000000-0000-0000-0000-000000000000",
-            platform: "TRENDYOL",
-            categoryId: categoryId.toString(),
-            externalId: aId.toString()
-          }
-        },
-        create: {
-          storeId: "00000000-0000-0000-0000-000000000000",
-          platform: "TRENDYOL",
-          categoryId: categoryId.toString(),
-          externalId: aId.toString(),
-          name: attr.attribute.name,
-          required: attr.required,
-          metadata: metadata as any,
-          createdAt: now,
-          updatedAt: now
-        },
-        update: {
-          name: attr.attribute.name,
-          required: attr.required,
-          metadata: metadata as any,
-          updatedAt: now
-        }
-      });
-      attributeCount++;
-
-      const parentAttrRow = await prisma.marketplaceAttribute.findUnique({
-        where: {
-          storeId_platform_categoryId_externalId: {
-            storeId: "00000000-0000-0000-0000-000000000000",
-            platform: "TRENDYOL",
-            categoryId: categoryId.toString(),
-            externalId: aId.toString()
-          }
-        }
-      });
-
-      if (parentAttrRow && attr.attributeValues && Array.isArray(attr.attributeValues)) {
-        const seenVals = new Set<number>();
-        for (const val of attr.attributeValues) {
-          seenVals.add(val.id);
-          await prisma.marketplaceAttributeValue.upsert({
+    // 1) Özellik satırlarını 500'lük transaction chunk'larıyla yaz
+    for (let i = 0; i < arr.length; i += CHUNK_SIZE) {
+      const chunk = arr.slice(i, i + CHUNK_SIZE);
+      await prisma.$transaction(
+        chunk.map((attr) => {
+          const aId = attr.attribute.id;
+          const metadata = {
+            isVariantable: attr.varianter,
+            allowCustom: attr.allowCustom,
+            isSlicer: attr.slicer
+          };
+          return prisma.marketplaceAttribute.upsert({
             where: {
-              attributeId_externalId: {
-                attributeId: parentAttrRow.id,
-                externalId: val.id.toString()
+              storeId_platform_categoryId_externalId: {
+                storeId: SYSTEM_STORE_ID,
+                platform: "TRENDYOL",
+                categoryId: categoryId.toString(),
+                externalId: aId.toString()
               }
             },
             create: {
-              attributeId: parentAttrRow.id,
-              externalId: val.id.toString(),
-              name: val.name,
+              storeId: SYSTEM_STORE_ID,
+              platform: "TRENDYOL",
+              categoryId: categoryId.toString(),
+              externalId: aId.toString(),
+              name: attr.attribute.name,
+              required: attr.required,
+              metadata: metadata as any,
               createdAt: now,
               updatedAt: now
             },
             update: {
-              name: val.name,
+              name: attr.attribute.name,
+              required: attr.required,
+              metadata: metadata as any,
               updatedAt: now
             }
           });
-          valueCount++;
-        }
+        })
+      );
+      attributeCount += chunk.length;
+    }
+
+    // 2) Değerler — parent attribute id gerekir; özellik bazında değerleri chunk'la
+    for (const attr of arr) {
+      const aId = attr.attribute.id;
+      if (!attr.attributeValues || !Array.isArray(attr.attributeValues) || attr.attributeValues.length === 0) {
+        continue;
+      }
+
+      const parentAttrRow = await prisma.marketplaceAttribute.findUnique({
+        where: {
+          storeId_platform_categoryId_externalId: {
+            storeId: SYSTEM_STORE_ID,
+            platform: "TRENDYOL",
+            categoryId: categoryId.toString(),
+            externalId: aId.toString()
+          }
+        },
+        select: { id: true }
+      });
+      if (!parentAttrRow) continue;
+
+      const values = attr.attributeValues;
+      for (let i = 0; i < values.length; i += CHUNK_SIZE) {
+        const chunk = values.slice(i, i + CHUNK_SIZE);
+        await prisma.$transaction(
+          chunk.map((val) =>
+            prisma.marketplaceAttributeValue.upsert({
+              where: {
+                attributeId_externalId: {
+                  attributeId: parentAttrRow.id,
+                  externalId: val.id.toString()
+                }
+              },
+              create: {
+                attributeId: parentAttrRow.id,
+                externalId: val.id.toString(),
+                name: val.name,
+                createdAt: now,
+                updatedAt: now
+              },
+              update: {
+                name: val.name,
+                updatedAt: now
+              }
+            })
+          )
+        );
+        valueCount += chunk.length;
       }
     }
 
@@ -153,16 +172,25 @@ export async function syncTrendyolCategoryAttributesForAllLeafCategoriesSystem(o
   };
 }> {
   try {
-    const leaves = await prisma.marketplaceCategory.findMany({
-      where: {
-        platform: "TRENDYOL",
-        isActive: true
-      },
-      select: { externalId: true, metadata: true }
-    }).then(list => list.map(c => ({
-      categoryId: parseInt(c.externalId, 10),
-      isLeaf: c.metadata && typeof c.metadata === "object" && (c.metadata as any).isLeaf === true
-    })).filter(c => c.isLeaf));
+    const leaves = await prisma.marketplaceCategory
+      .findMany({
+        where: {
+          platform: "TRENDYOL",
+          isActive: true
+        },
+        select: { externalId: true, metadata: true }
+      })
+      .then((list) =>
+        list
+          .map((c) => ({
+            categoryId: parseInt(c.externalId, 10),
+            isLeaf:
+              c.metadata &&
+              typeof c.metadata === "object" &&
+              (c.metadata as { isLeaf?: boolean }).isLeaf === true
+          }))
+          .filter((c) => c.isLeaf && Number.isFinite(c.categoryId))
+      );
 
     let processed = 0;
     let failed = 0;
