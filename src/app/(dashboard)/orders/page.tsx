@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import { hasPermission } from "@/lib/activeStore";
 import { OrdersTrendyolSyncButton } from "@/components/orders/OrdersTrendyolSyncButton";
+import { OrdersHepsiburadaSyncButton } from "@/components/orders/OrdersHepsiburadaSyncButton";
 import { OrderSyncStatusPanel } from "@/components/orders/OrderSyncStatusPanel";
 import { resolveCargoProviderDisplay } from "@/lib/trendyolTracking";
 
@@ -141,7 +142,7 @@ export default async function OrdersPage({
     where.orderDate = orderDate;
   }
 
-  const [orders, syncState, runningJob, latestFailedJob, recentSyncJobs] = await Promise.all([
+  const [orders, syncState, runningJob, latestFailedJob, recentSyncJobs, hbSyncState, hbRunningJob, hbLatestFailedJob, hbRecentSyncJobs] = await Promise.all([
     prisma.marketplaceOrder.findMany({
     where,
     orderBy: { orderDate: "desc" },
@@ -205,6 +206,42 @@ export default async function OrdersPage({
         failedCount: true,
         createdAt: true
       }
+    }),
+    prisma.storeOrderSyncState.findUnique({
+      where: {
+        storeId_platform: { storeId: ctx.storeId, platform: "hepsiburada" }
+      }
+    }),
+    prisma.orderSyncJob.findFirst({
+      where: {
+        storeId: ctx.storeId,
+        platform: "hepsiburada",
+        status: "running"
+      },
+      select: { id: true, syncType: true, startedAt: true }
+    }),
+    prisma.orderSyncJob.findFirst({
+      where: {
+        storeId: ctx.storeId,
+        platform: "hepsiburada",
+        status: "failed"
+      },
+      orderBy: { finishedAt: "desc" },
+      select: { id: true, finishedAt: true, errorMessage: true }
+    }),
+    prisma.orderSyncJob.findMany({
+      where: { storeId: ctx.storeId, platform: "hepsiburada" },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: {
+        id: true,
+        syncType: true,
+        status: true,
+        finishedAt: true,
+        packagesFetchedCount: true,
+        failedCount: true,
+        createdAt: true
+      }
     })
   ]);
 
@@ -221,7 +258,10 @@ export default async function OrdersPage({
           </p>
         </div>
         {canManageOrders && (
-          <OrdersTrendyolSyncButton statusFilter={statusFilter} />
+          <div className="flex flex-wrap items-start gap-2">
+            <OrdersTrendyolSyncButton statusFilter={statusFilter} />
+            <OrdersHepsiburadaSyncButton />
+          </div>
         )}
       </div>
 
@@ -230,6 +270,14 @@ export default async function OrdersPage({
         running={runningJob}
         latestFailed={latestFailedJob}
         recentJobs={recentSyncJobs}
+      />
+
+      <OrderSyncStatusPanel
+        syncState={hbSyncState}
+        running={hbRunningJob}
+        latestFailed={hbLatestFailedJob}
+        recentJobs={hbRecentSyncJobs}
+        label="Hepsiburada sipariş senkron durumu"
       />
 
       <div className="card">
@@ -400,7 +448,7 @@ export default async function OrdersPage({
                   Aç
                 </Link>
               </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-300">
                 <span className="text-slate-500">Durum</span>
                 <span>{packageStatusTR(o.packageStatus)}</span>
                 <span className="text-slate-500">Müşteri</span>

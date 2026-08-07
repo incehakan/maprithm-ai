@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendyolWebhooksPanel } from "@/components/trendyol/TrendyolWebhooksPanel";
 import { resolveUserErrorMessage } from "@/lib/errors/resolveUserErrorMessage";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type ConnectionView = {
   id: string;
@@ -114,6 +115,18 @@ function TrendyolSettingsPageContent() {
   const [message, setMessage] = useState<{
     type: "success" | "error" | "warning";
     text: string;
+  } | null>(null);
+
+  const [productV2Enabled, setProductV2Enabled] = useState(false);
+  const [productV2Loading, setProductV2Loading] = useState(true);
+  const [productV2Saving, setProductV2Saving] = useState(false);
+
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<{
+    totalOnTrendyol: number;
+    matchedAndLinked: number;
+    alreadyLinked: number;
+    notFoundLocally: number;
   } | null>(null);
 
   useEffect(() => {
@@ -255,6 +268,85 @@ function TrendyolSettingsPageContent() {
     }
   }, [connection?.id, connection?.isActive, loadCargoOptions]);
 
+  useEffect(() => {
+    async function loadV2Flag() {
+      try {
+        const res = await fetch("/api/settings/feature-flags");
+        const data = await res.json();
+        if (data?.flags?.product_v2_enabled === true) {
+          setProductV2Enabled(true);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setProductV2Loading(false);
+      }
+    }
+    loadV2Flag();
+  }, []);
+
+  async function handleToggleProductV2(nextValue: boolean) {
+    setProductV2Saving(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/settings/feature-flags", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "product_v2_enabled", value: nextValue })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Ayar kaydedilemedi."));
+      setProductV2Enabled(nextValue);
+      setMessage({
+        type: "success",
+        text: nextValue
+          ? "V2 API'ye geçildi. Yeni yayınlar ve güncellemeler artık V2 uç noktalarını kullanacak."
+          : "V1 API'ye geri dönüldü."
+      });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Ayar değiştirilirken hata oluştu."
+      });
+    } finally {
+      setProductV2Saving(false);
+    }
+  }
+
+  async function handleReconcileCatalog() {
+    if (
+      !confirm(
+        "Trendyol'daki tüm onaylı/onaysız ürünler taranacak ve barkodu eşleşen yerel ürünlere otomatik bağlantı (mapping) oluşturulacak. Mevcut hiçbir ürün silinmez/değiştirilmez. Devam edilsin mi?"
+      )
+    ) {
+      return;
+    }
+    setReconciling(true);
+    setReconcileResult(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/integrations/trendyol/reconcile-catalog", {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(extractApiErrorMessage(data, "Eşleştirme başarısız."));
+      }
+      setReconcileResult(data);
+      setMessage({
+        type: "success",
+        text: `Tarama tamamlandı: ${data.totalOnTrendyol} Trendyol ürünü, ${data.matchedAndLinked} yeni eşleşme oluşturuldu.`
+      });
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Eşleştirme sırasında hata oluştu."
+      });
+    } finally {
+      setReconciling(false);
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     setMessage(null);
@@ -379,11 +471,14 @@ function TrendyolSettingsPageContent() {
             : prev
         );
       }
+      const versionSuffix =
+        data.apiVersion === "v2" ? " (V2 uç noktası)" : " (V1 uç noktası)";
       setMessage({
         type: data.success ? "success" : "error",
-        text: data.success
-          ? data.message || "Bağlantı testi başarılı."
-          : data.message || "Bağlantı testi başarısız."
+        text:
+          (data.success
+            ? data.message || "Bağlantı testi başarılı."
+            : data.message || "Bağlantı testi başarısız.") + versionSuffix
       });
     } catch (err) {
       setMessage({
@@ -425,6 +520,81 @@ function TrendyolSettingsPageContent() {
       </div>
 
       {message && <Alert variant={message.type === "success" ? "success" : message.type === "warning" ? "warning" : "error"}>{message.text}</Alert>}
+
+      <Card className={`space-y-4 ${!productV2Enabled ? "border-red-700/60 bg-red-950/20" : "border-emerald-700/60 bg-emerald-950/10"}`}>
+        <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
+          ⚠️ Trendyol Product V1 API — 10 Ağustos 2026'da devre dışı kalıyor
+        </h2>
+        <p className="text-xs text-slate-300">
+          Trendyol'un resmi duyurusuna göre Product V1 servisleri (createProducts,
+          updateProducts vb.) <strong>10 Ağustos 2026</strong> itibarıyla geçersiz olacak.
+          Sistemimiz V2 alt yapısına hazır (bu anahtarla açılıyor) ama mevcut mağazanızda
+          henüz kapalıydı — yani henüz V1 kullanılıyor olabilir.
+        </p>
+        {productV2Loading ? (
+          <Skeleton className="h-10 w-48" />
+        ) : (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => handleToggleProductV2(true)}
+              disabled={productV2Saving || productV2Enabled}
+              className="btn-primary disabled:opacity-60"
+            >
+              {productV2Enabled
+                ? "V2 API aktif ✓"
+                : productV2Saving
+                  ? "Geçiliyor..."
+                  : "Şimdi V2'ye Geç"}
+            </button>
+            {productV2Enabled && (
+              <button
+                type="button"
+                onClick={() => handleToggleProductV2(false)}
+                disabled={productV2Saving}
+                className="text-xs text-slate-400 hover:text-slate-200 underline"
+              >
+                V1'e geri dön (test amaçlı)
+              </button>
+            )}
+          </div>
+        )}
+        <p className="text-xs text-slate-500">
+          Geçiş sonrası mevcut yayında olan ürünleriniz etkilenmez; sadece yeni yayın/güncelleme
+          istekleri V2 uç noktalarına gider. Önce bir-iki ürünle test etmenizi öneririz
+          (Ürünler → bir ürün seç → "Trendyol'da Yayınla").
+        </p>
+      </Card>
+
+      <Card className="space-y-4">
+        <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">
+          Geçiş Aracı: Trendyol'daki Mevcut Ürünleri Eşleştir
+        </h2>
+        <p className="text-xs text-slate-400">
+          Daha önce başka bir entegrasyon/panel kullanıp şimdi bu sisteme geçiyorsanız:
+          Trendyol'da zaten yayında olan ürünleriniz var ama bu sistemde henüz
+          eşleştirilmemiş olabilir. Bu araç, Trendyol'daki tüm ürün barkodlarını çekip
+          (onaylı + onaysız), XML feed'inizden gelen ve barkodu eşleşen yerel ürünlere
+          otomatik bağlantı (mapping) kurar — böylece bu ürünler yeniden oluşturulmaya
+          çalışılıp "barkod zaten kullanılıyor" hatası almaz.
+        </p>
+        <p className="text-xs text-amber-300/90">
+          ⚠️ Ön koşul: eşleştirilecek ürünlerin sizin sisteminizde (XML senkronundan)
+          zaten var olması ve barkodunun XML'de dolu olması gerekir. Sadece eksik
+          bağlantılar tamamlanır; hiçbir ürün silinmez veya üzerine yazılmaz.
+        </p>
+        <button type="button" onClick={handleReconcileCatalog} disabled={reconciling} className="btn-primary disabled:opacity-50">
+          {reconciling ? "Taranıyor…" : "Trendyol Kataloğunu Tara ve Eşleştir"}
+        </button>
+        {reconcileResult && (
+          <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-xs text-slate-300">
+            <p>Trendyol'da taranan ürün: <strong className="text-slate-100">{reconcileResult.totalOnTrendyol}</strong></p>
+            <p>Yeni oluşturulan eşleşme: <strong className="text-emerald-300">{reconcileResult.matchedAndLinked}</strong></p>
+            <p>Zaten eşleşmiş olan: <strong className="text-slate-400">{reconcileResult.alreadyLinked}</strong></p>
+            <p>Yerelde bulunamayan (XML'de yok/farklı barkod): <strong className="text-amber-300">{reconcileResult.notFoundLocally}</strong></p>
+          </div>
+        )}
+      </Card>
 
       <Card className="space-y-4">
         <h2 className="text-sm font-semibold text-slate-100 border-b border-slate-700 pb-2">

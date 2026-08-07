@@ -46,6 +46,8 @@ import {
 import { secureProductMarketplaceMappingUpdateMany } from "@/lib/security/storeScope";
 import { isFeatureEnabled, FEATURE_FLAGS } from "@/lib/featureFlags";
 import { categoryRequiresOrigin } from "@/lib/trendyolOriginRequired";
+import { applyAutoPricingIfEnabled } from "@/lib/pricingAutoApply";
+import { evaluatePublishRuleGate } from "@/lib/publishRules";
 
 export type TrendyolPublishPipelineResult =
   | {
@@ -147,6 +149,22 @@ export async function runTrendyolProductPublishPipeline(input: {
     v2Op != null ||
     (!contentRepublishMode && (await isStoreProductV2Enabled(input.storeId)));
 
+  // Kademeli fiyatlandırma (PRICING_TIER_AUTO_APPLY) açıksa, ilk yayın öncesi
+  // maliyet fiyatına göre satış fiyatını otomatik yeniden hesaplar ve Product.price'a yazar.
+  // İçerik güncelleme (contentRepublishMode) akışında fiyat yeniden hesaplanmaz.
+  if (!contentRepublishMode) {
+    try {
+      await applyAutoPricingIfEnabled({
+        userId: input.userId,
+        storeId: input.storeId,
+        membershipId: input.membershipId,
+        productId: input.productId
+      });
+    } catch (e) {
+      console.warn("applyAutoPricingIfEnabled skipped:", e);
+    }
+  }
+
   const product = await prisma.product.findFirst({
     where: { id: input.productId, userId: input.userId, storeId: input.storeId }
   });
@@ -192,6 +210,43 @@ export async function runTrendyolProductPublishPipeline(input: {
         }
       ])
     };
+  }
+
+  if (!contentRepublishMode) {
+    const anyPrisma = prisma as any;
+    const publishRule =
+      anyPrisma.marketplacePublishRule && typeof anyPrisma.marketplacePublishRule.findUnique === "function"
+        ? await anyPrisma.marketplacePublishRule.findUnique({ where: { storeId: input.storeId } })
+        : null;
+
+    const ruleCheck = evaluatePublishRuleGate(
+      { price: Number(product.price), stock: product.stock },
+      publishRule
+    );
+
+    if (ruleCheck.blocked) {
+      await persistPublishValidationFailure({
+        storeId: input.storeId,
+        mappingId: mappingRow.id,
+        code: TrendyolPrePublishErrorCode.PUBLISH_RULE_BLOCKED,
+        message: ruleCheck.reason
+      });
+      return {
+        ok: false,
+        httpStatus: 400,
+        error: ruleCheck.reason,
+        batch: buildPublishBatchResult([
+          {
+            productId: input.productId,
+            mappingId: mappingRow.id,
+            barcode: (mappingRow.barcode as string | null) ?? undefined,
+            status: "FAILED",
+            errorCode: TrendyolPrePublishErrorCode.PUBLISH_RULE_BLOCKED,
+            errorMessage: ruleCheck.reason
+          }
+        ])
+      };
+    }
   }
 
   const conn = await prisma.marketplaceConnection.findUnique({
@@ -249,8 +304,23 @@ export async function runTrendyolProductPublishPipeline(input: {
     };
   }
 
-  const shipmentAddressId = conn.shipmentAddressId?.trim();
-  const returnAddressId = conn.returnAddressId?.trim();
+  // Ürün bir XML feed'inden geldiyse ve o feed'e özel sevkiyat/iade adresi
+  // tanımlıysa, mağaza varsayılanı yerine onu kullan.
+  let feedShipmentAddressId: string | null = null;
+  let feedReturnAddressId: string | null = null;
+  const sourceFeedId = (product as typeof product & { sourceXmlFeedSourceId?: string | null })
+    .sourceXmlFeedSourceId;
+  if (sourceFeedId) {
+    const feedSource = await prisma.xmlFeedSource.findFirst({
+      where: { id: sourceFeedId, storeId: input.storeId },
+      select: { shipmentAddressId: true, returnAddressId: true }
+    });
+    feedShipmentAddressId = feedSource?.shipmentAddressId?.trim() || null;
+    feedReturnAddressId = feedSource?.returnAddressId?.trim() || null;
+  }
+
+  const shipmentAddressId = feedShipmentAddressId || conn.shipmentAddressId?.trim();
+  const returnAddressId = feedReturnAddressId || conn.returnAddressId?.trim();
   if (!shipmentAddressId || !returnAddressId) {
     const msg = "Trendyol adresi seçilmeden ürün gönderilemez.";
     await persistPublishValidationFailure({
@@ -307,20 +377,20 @@ export async function runTrendyolProductPublishPipeline(input: {
     };
   }
 
-  const catAttrs = await prisma.trendyolCategoryAttribute.findMany({
-    where: { categoryId },
+  const catAttrs = await prisma.marketplaceAttribute.findMany({
+    where: { platform: "TRENDYOL", categoryId: categoryId.toString() },
     select: {
-      attributeId: true,
-      attributeName: true,
-      isRequired: true
+      externalId: true,
+      name: true,
+      required: true
     },
-    orderBy: { attributeName: "asc" }
+    orderBy: { name: "asc" }
   });
 
-  const defs = catAttrs.map((a) => ({
-    attributeId: a.attributeId,
-    attributeName: a.attributeName,
-    isRequired: Boolean(a.isRequired)
+  const defs = catAttrs.map((a: any) => ({
+    attributeId: parseInt(a.externalId, 10),
+    attributeName: a.name,
+    isRequired: Boolean(a.required)
   }));
 
   const savedAttrs = mappingRow.attributes.map((a) => ({
@@ -490,7 +560,9 @@ export async function runTrendyolProductPublishPipeline(input: {
     shipmentAddressId,
     returnAddressId,
     productOrigin: p.origin ?? null,
-    includeOriginField: originFieldEnabled
+    includeOriginField: originFieldEnabled,
+    deliveryDuration: mappingRow.deliveryDuration ?? null,
+    fastDeliveryType: mappingRow.fastDeliveryType ?? null
   };
   try {
     if (productV2Enabled && v2Op === "updateUnapprovedProducts") {
@@ -736,7 +808,25 @@ export async function runTrendyolProductContentUpdatePipeline(input: {
       }
     });
     if (mappingRow?.approvalState === "APPROVED") {
-      return runTrendyolApprovedContentUpdatePipelineV2(input);
+      const approvedResult = await runTrendyolApprovedContentUpdatePipelineV2(input);
+      // Kendi kendini onarma: DB'de APPROVED yazsa da Trendyol getProductBase bu barkod
+      // için contentId döndürmüyorsa (ör. bayat/yanlış işaretlenmiş kayıt), onaysız
+      // ürün yoluna otomatik düş ve yerel etiketi düzelt — kullanıcıya hata göstermek yerine.
+      const contentIdMissing =
+        !approvedResult.ok && approvedResult.error?.includes("contentId bulunamadı");
+      if (contentIdMissing) {
+        await prisma.productMarketplaceMapping.updateMany({
+          where: { id: mappingRow.id, storeId: input.storeId },
+          data: { approvalState: "UNAPPROVED" }
+        });
+        return runTrendyolProductPublishPipeline({
+          ...input,
+          contentRepublishMode: true,
+          trendyolV2Operation: "updateUnapprovedProducts",
+          skipActivityLog: input.skipActivityLog
+        });
+      }
+      return approvedResult;
     }
     return runTrendyolProductPublishPipeline({
       ...input,

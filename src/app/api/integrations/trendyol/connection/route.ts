@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { encryptSecret, decryptSecret, maskSecret } from "@/lib/secretCrypto";
-import { requireActiveStore } from "@/lib/requireActiveStore";
+import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import {
   createErrorResponse,
   jsonError,
@@ -82,25 +82,16 @@ export async function GET() {
       ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
       : jsonError("UNAUTHORIZED", { httpStatus: 401 });
   }
+  
+  try {
+    requirePermission(ctx, "marketplace.integrations.manage");
+  } catch (e: any) {
+    return jsonError("FORBIDDEN", { httpStatus: 403 });
+  }
 
   try {
-    const anyPrisma = prisma as any;
-    if (
-      !anyPrisma.marketplaceConnection ||
-      typeof anyPrisma.marketplaceConnection.findUnique !== "function"
-    ) {
-      return NextResponse.json(
-        {
-          connection: null,
-          message:
-            "MarketplaceConnection modeli henüz mevcut değil. Migration ve prisma generate çalıştırın."
-        },
-        { status: 200 }
-      );
-    }
-
-    const row = await anyPrisma.marketplaceConnection.findFirst({
-      where: { userId: ctx.userId, storeId: ctx.storeId, platform: "trendyol" },
+    const row = await prisma.marketplaceConnection.findFirst({
+      where: { storeId: ctx.storeId, platform: "trendyol" },
       orderBy: { createdAt: "desc" }
     });
 
@@ -128,6 +119,12 @@ export async function POST(request: Request) {
     return noStore
       ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
       : jsonError("UNAUTHORIZED", { httpStatus: 401 });
+  }
+
+  try {
+    requirePermission(ctx, "marketplace.integrations.manage");
+  } catch (e: any) {
+    return jsonError("FORBIDDEN", { httpStatus: 403 });
   }
 
   let body: Partial<ConnectionPayload>;
@@ -168,20 +165,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const anyPrisma = prisma as any;
-    if (
-      !anyPrisma.marketplaceConnection ||
-      typeof anyPrisma.marketplaceConnection.create !== "function"
-    ) {
-      return jsonError("INTERNAL_ERROR", {
-        userMessage: "Sunucu yapılandırması güncel değil. Yöneticinize başvurun.",
-        internalMessage: "MarketplaceConnection delegate missing",
-        httpStatus: 503
-      });
-    }
-
-    const existing = await anyPrisma.marketplaceConnection.findFirst({
-      where: { userId: ctx.userId, storeId: ctx.storeId, platform: "trendyol" },
+    const existing = await prisma.marketplaceConnection.findFirst({
+      where: { storeId: ctx.storeId, platform: "trendyol" },
       orderBy: { createdAt: "desc" }
     });
 
@@ -268,7 +253,7 @@ export async function POST(request: Request) {
         where: { id: existing.id, storeId: ctx.storeId }
       });
     } else {
-      row = await anyPrisma.marketplaceConnection.create({
+      row = await prisma.marketplaceConnection.create({
         data: {
           userId: ctx.userId,
           storeId: ctx.storeId,

@@ -73,22 +73,23 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
       const normalized = normalizeBrandData(b);
       if (!normalized) continue;
       seen.add(normalized.brandId);
-      await prisma.trendyolBrand.upsert({
-        where: { brandId: normalized.brandId },
+      await prisma.marketplaceBrand.upsert({
+        where: { storeId_platform_externalId: { storeId: "00000000-0000-0000-0000-000000000000", platform: "TRENDYOL", externalId: normalized.brandId.toString() } },
         create: {
-          brandId: normalized.brandId,
+          storeId: "00000000-0000-0000-0000-000000000000",
+          platform: "TRENDYOL",
+          externalId: normalized.brandId.toString(),
           name: normalized.name,
-          isActive: normalized.isActive,
-          removedAt: null,
-          rawData: normalized.rawData,
-          lastSyncedAt: now
+          isActive: normalized.isActive ?? true,
+          metadata: normalized.rawData as any,
+          createdAt: now,
+          updatedAt: now
         },
         update: {
           name: normalized.name,
-          isActive: normalized.isActive,
-          removedAt: null,
-          rawData: normalized.rawData,
-          lastSyncedAt: now
+          isActive: normalized.isActive ?? true,
+          metadata: normalized.rawData as any,
+          updatedAt: now
         }
       });
       totalProcessed++;
@@ -99,18 +100,17 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
   }
 
   if (seen.size > 0) {
-    // NOTE: "notIn: [...seen]" can exceed PostgreSQL bind limit on large datasets.
-    const activeBrandRows = await prisma.trendyolBrand.findMany({
-      where: { removedAt: null },
-      select: { brandId: true }
+    const activeBrandRows = await prisma.marketplaceBrand.findMany({
+      where: { platform: "TRENDYOL", isActive: true },
+      select: { externalId: true }
     });
     const staleBrandIds = activeBrandRows
-      .map((x) => x.brandId)
-      .filter((id) => !seen.has(id));
+      .map((x: any) => parseInt(x.externalId, 10))
+      .filter((id: any) => !seen.has(id));
     for (const ids of chunkArray(staleBrandIds, 1000)) {
-      await prisma.trendyolBrand.updateMany({
-        where: { brandId: { in: ids }, removedAt: null },
-        data: { removedAt: now, isActive: false }
+      await prisma.marketplaceBrand.updateMany({
+        where: { platform: "TRENDYOL", externalId: { in: ids.map((id: any) => id.toString()) }, isActive: true },
+        data: { isActive: false, updatedAt: now }
       });
     }
   }
@@ -134,44 +134,42 @@ export async function syncGlobalTrendyolCategories(): Promise<{ count: number }>
     const normalized = normalizeCategoryData(row.rawNode);
     if (!normalized) continue;
     seen.add(normalized.categoryId);
-    await prisma.trendyolCategory.upsert({
-      where: { categoryId: normalized.categoryId },
+    await prisma.marketplaceCategory.upsert({
+      where: { storeId_platform_externalId: { storeId: "00000000-0000-0000-0000-000000000000", platform: "TRENDYOL", externalId: normalized.categoryId.toString() } },
       create: {
-        categoryId: normalized.categoryId,
+        storeId: "00000000-0000-0000-0000-000000000000",
+        platform: "TRENDYOL",
+        externalId: normalized.categoryId.toString(),
         name: normalized.name,
-        parentCategoryId: row.parentCategoryId,
-        isLeaf: row.isLeaf,
-        isActive: normalized.isActive,
-        removedAt: null,
-        rawData: normalized.rawData,
-        lastSyncedAt: now
+        parentId: row.parentCategoryId ? row.parentCategoryId.toString() : null,
+        isActive: normalized.isActive ?? true,
+        metadata: { ...normalized.rawData as any, isLeaf: row.isLeaf },
+        createdAt: now,
+        updatedAt: now
       },
       update: {
         name: normalized.name,
-        parentCategoryId: row.parentCategoryId,
-        isLeaf: row.isLeaf,
-        isActive: normalized.isActive,
-        removedAt: null,
-        rawData: normalized.rawData,
-        lastSyncedAt: now
+        parentId: row.parentCategoryId ? row.parentCategoryId.toString() : null,
+        isActive: normalized.isActive ?? true,
+        metadata: { ...normalized.rawData as any, isLeaf: row.isLeaf },
+        updatedAt: now
       }
     });
     totalProcessed++;
   }
 
   if (seen.size > 0) {
-    // NOTE: "notIn: [...seen]" can exceed PostgreSQL bind limit on large datasets.
-    const activeCategoryRows = await prisma.trendyolCategory.findMany({
-      where: { removedAt: null },
-      select: { categoryId: true }
+    const activeCategoryRows = await prisma.marketplaceCategory.findMany({
+      where: { platform: "TRENDYOL", isActive: true },
+      select: { externalId: true }
     });
     const staleCategoryIds = activeCategoryRows
-      .map((x) => x.categoryId)
-      .filter((id) => !seen.has(id));
+      .map((x: any) => parseInt(x.externalId, 10))
+      .filter((id: any) => !seen.has(id));
     for (const ids of chunkArray(staleCategoryIds, 1000)) {
-      await prisma.trendyolCategory.updateMany({
-        where: { categoryId: { in: ids }, removedAt: null },
-        data: { removedAt: now, isActive: false }
+      await prisma.marketplaceCategory.updateMany({
+        where: { platform: "TRENDYOL", externalId: { in: ids.map((id: any) => id.toString()) }, isActive: true },
+        data: { isActive: false, updatedAt: now }
       });
     }
   }
@@ -318,4 +316,3 @@ export async function syncGlobalTrendyolReferenceData(params?: {
 }) {
   return runGlobalTrendyolReferenceSync(params);
 }
-

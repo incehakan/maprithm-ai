@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type ReadinessRow = {
   productId: string;
@@ -64,7 +65,7 @@ function TrendyolPublishReadinessPageContent() {
       const res = await fetch(`/api/trendyol/publish-readiness${queryString}`);
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Liste yüklenemedi.");
+        throw new Error(extractApiErrorMessage(data, "Liste yüklenemedi."));
       }
       setRows(data.rows ?? []);
       setTotal(data.total ?? 0);
@@ -114,7 +115,7 @@ function TrendyolPublishReadinessPageContent() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "İşlem başarısız.");
+        throw new Error(extractApiErrorMessage(data, "İşlem başarısız."));
       }
       setBulkMessage(
         `${data.mappingsUpdated ?? 0} Trendyol eşlemesi "hazır" olarak işaretlendi.`

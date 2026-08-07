@@ -9,6 +9,7 @@ import { OrderRelatedPackages } from "@/components/orders/OrderRelatedPackages";
 import { OrderInvoiceCardClient } from "@/components/orders/OrderInvoiceCardClient";
 import { OrderCargoTrackingCard } from "@/components/orders/OrderCargoTrackingCard";
 import { OrderShippingOperationsCard } from "@/components/orders/OrderShippingOperationsCard";
+import { OrderAdvancedShippingOperationsCard } from "@/components/orders/OrderAdvancedShippingOperationsCard";
 import {
   ingestSourceLabel,
   packageStatusTR
@@ -51,7 +52,7 @@ export default async function OrderDetailPage({ params }: Props) {
   }
 
   const order = await prisma.marketplaceOrder.findFirst({
-    where: { id: orderId, storeId: ctx.storeId, isTestRecord: false },
+    where: { id: orderId, storeId: ctx.storeId }, // Allow test records so we can check mock orders
     include: {
       lines: { orderBy: { createdAt: "asc" } },
       events: { orderBy: { createdAt: "asc" }, take: 200 },
@@ -194,6 +195,19 @@ export default async function OrderDetailPage({ params }: Props) {
           action: e.action,
           message: e.message,
           createdAt: e.createdAt.toISOString()
+        }))}
+      />
+
+      <OrderAdvancedShippingOperationsCard
+        orderId={order.id}
+        shipmentPackageId={order.shipmentPackageId}
+        canManage={canManageOrders}
+        lines={order.lines.map((l) => ({
+          id: l.id,
+          lineId: l.lineId ? Number(l.lineId) : null,
+          stockCode: l.stockCode,
+          productName: l.productName,
+          quantity: l.quantity
         }))}
       />
 

@@ -66,7 +66,7 @@ export default async function StorePage() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card">
           <div className="text-sm font-semibold text-slate-100">Mağaza Bilgileri</div>
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <dl className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 text-sm">
             <div>
               <dt className="text-slate-400">Ad</dt>
               <dd className="text-slate-100">{store.name}</dd>
@@ -103,7 +103,7 @@ export default async function StorePage() {
         </div>
 
         <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="card">
               <div className="text-xs text-slate-400">Toplam kullanıcı</div>
               <div className="mt-1 text-2xl font-semibold">{totalUsers}</div>
@@ -113,7 +113,7 @@ export default async function StorePage() {
               <div className="mt-1 text-2xl font-semibold">{activeUsers}</div>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="card">
               <div className="text-xs text-slate-400">Ürün</div>
               <div className="mt-1 text-2xl font-semibold">{totalProducts}</div>

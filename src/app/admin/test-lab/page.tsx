@@ -11,6 +11,7 @@ import {
   SectionHeader,
   StatusBadge
 } from "@/components/premium/design-system";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type StoreRow = { id: string; name: string; slug: string | null };
 
@@ -137,7 +138,7 @@ export default function AdminTestLabPage() {
       try {
         const res = await fetch("/api/admin/test-lab/stores");
         const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data?.error || "Store yüklenemedi");
+        if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Store yüklenemedi"));
         const rows = (data.stores ?? []) as StoreRow[];
         setStores(rows);
         if (rows.length > 0) setStoreId(rows[0].id);
@@ -156,7 +157,7 @@ export default function AdminTestLabPage() {
       try {
         const res = await fetch("/api/admin/test-lab/return-reasons");
         const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data?.error || "Return reasons yüklenemedi");
+        if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Return reasons yüklenemedi"));
         setReturnReasons(data.reasons ?? []);
       } catch {
         // opsiyonel
@@ -390,7 +391,7 @@ export default function AdminTestLabPage() {
                     })
                   });
                   const data = await res.json();
-                  if (!res.ok || !data.success) throw new Error(data?.error || "Order oluşturma başarısız");
+                  if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Order oluşturma başarısız"));
                   setTestOrderId(data.orderId);
                   setTestShipmentPackageId(data.shipmentPackageId);
                   setOrderCreateRes({ ok: true, msg: data.message ?? "OK" });
@@ -441,7 +442,7 @@ export default function AdminTestLabPage() {
                     body: JSON.stringify({ storeId, testSource: runId, nextStatus })
                   });
                   const data = await res.json();
-                  if (!res.ok || !data.success) throw new Error(data?.error || "Lifecycle simülasyonu başarısız");
+                  if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Lifecycle simülasyonu başarısız"));
                   setLifecycleRes({ ok: true, msg: `OK: ${data.nextStatus}` });
                 });
               } catch (e) {
@@ -487,7 +488,7 @@ export default function AdminTestLabPage() {
                     body: JSON.stringify({ storeId, testSource: runId, childShipmentPackageId, moveLineCount })
                   });
                   const data = await res.json();
-                  if (!res.ok || !data.success) throw new Error(data?.error || "Split simülasyonu başarısız");
+                  if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Split simülasyonu başarısız"));
                   setSplitRes({ ok: true, msg: `OK: child=${data.childShipmentPackageId}` });
                 });
               } catch (e) {
@@ -561,7 +562,7 @@ export default function AdminTestLabPage() {
                     })
                   });
                   const data = await res.json();
-                  if (!res.ok || !data.success) throw new Error(data?.error || "Tracking simülasyonu başarısız");
+                  if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Tracking simülasyonu başarısız"));
                   setTrackingRes({ ok: true, msg: "OK" });
                 });
               } catch (e) {
@@ -623,7 +624,7 @@ export default function AdminTestLabPage() {
                     })
                   });
                   const data = await res.json();
-                  if (!res.ok || !data.success) throw new Error(data?.error || "Invoice simülasyonu başarısız");
+                  if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Invoice simülasyonu başarısız"));
                   setInvoiceRes({ ok: true, msg: `OK: invoiceId=${data.invoiceId}` });
                 });
               } catch (e) {
@@ -722,7 +723,7 @@ export default function AdminTestLabPage() {
                     })
                   });
                   const data = await res.json();
-                  if (!res.ok || !data.success) throw new Error(data?.error || "Returns simülasyonu başarısız");
+                  if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Returns simülasyonu başarısız"));
                   setReturnsRes({ ok: true, msg: `OK: claim=${data.claimRecordId}` });
                 });
               } catch (e) {
@@ -785,7 +786,7 @@ export default function AdminTestLabPage() {
                   })
                 });
                 const data = await res.json();
-                if (!res.ok || !data.success) throw new Error(data?.error || "Webhook simülasyonu başarısız");
+                if (!res.ok || !data.success) throw new Error(extractApiErrorMessage(data, "Webhook simülasyonu başarısız"));
                 setWebhookRes({ ok: true, msg: "OK" });
               });
             } catch (e) {

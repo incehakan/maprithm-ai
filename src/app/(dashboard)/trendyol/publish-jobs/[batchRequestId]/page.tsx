@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type DetailProduct = {
   productId: string;
@@ -59,7 +60,7 @@ function TrendyolPublishJobDetailPageContent() {
         `/api/trendyol/publish-jobs/${encodeURIComponent(batchRequestId)}`
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Yüklenemedi.");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Yüklenemedi."));
       setJob(data.job);
       setProducts(data.products ?? []);
     } catch (e) {
@@ -85,7 +86,7 @@ function TrendyolPublishJobDetailPageContent() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Senkron başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Senkron başarısız."));
       }
       setSyncMessage(data.message || "Tamamlandı.");
       await load();

@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/secretCrypto";
 import { testTrendyolPartnerConnection } from "@/lib/trendyolPartnerApi";
 import { createActivityLog } from "@/lib/activityLog";
-import { requireActiveStore } from "@/lib/requireActiveStore";
+import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 import { secureMarketplaceConnectionUpdateMany } from "@/lib/security/storeScope";
+import { isStoreProductV2Enabled } from "@/lib/trendyolStoreProductV2";
 
 function resolveClientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for");
@@ -45,21 +46,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    const anyPrisma = prisma as any;
-    if (
-      !anyPrisma.marketplaceConnection ||
-      typeof anyPrisma.marketplaceConnection.findUnique !== "function"
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "MarketplaceConnection modeli henüz mevcut. Migration ve prisma generate çalıştırın."
-        },
-        { status: 503 }
-      );
-    }
+    requirePermission(ctx, "marketplace.integrations.manage");
+  } catch (e: any) {
+    return NextResponse.json({ error: "Yetkisiz erişim." }, { status: 403 });
+  }
 
-    const row = await anyPrisma.marketplaceConnection.findUnique({
+  try {
+    const row = await prisma.marketplaceConnection.findUnique({
       where: {
         storeId_platform: {
           storeId: ctx.storeId,
@@ -106,6 +99,11 @@ export async function POST(request: Request) {
     const clientIp = resolveClientIp(request);
     const agentName = resolveAgentName(null);
 
+    // Görev 8: mağazanın PRODUCT_V2 flag'i açıksa bağlantı testi de
+    // V2 filterApprovedProducts ucunu dener; kapalıysa V1 filterProducts'a
+    // sessizce düşer (davranış değişmez).
+    const useProductV2Filter = await isStoreProductV2Enabled(ctx.storeId);
+
     const result = await testTrendyolPartnerConnection({
       sellerId: row.sellerId,
       apiKey,
@@ -113,7 +111,8 @@ export async function POST(request: Request) {
       userAgent: row.userAgent,
       environment,
       clientIp,
-      agentName
+      agentName,
+      useProductV2Filter
     });
 
     await secureMarketplaceConnectionUpdateMany(row.id, ctx.storeId, {
@@ -131,14 +130,15 @@ export async function POST(request: Request) {
       entityType: "MARKETPLACE_CONNECTION",
       entityId: row.id,
       message: result.ok
-        ? `Trendyol bağlantısı test edildi: başarılı (HTTP ${result.status})`
-        : `Trendyol bağlantısı test edildi: başarısız (HTTP ${result.status}) — ${result.message}`
+        ? `Trendyol bağlantısı test edildi: başarılı (HTTP ${result.status}, ${useProductV2Filter ? "V2" : "V1"} uç noktası)`
+        : `Trendyol bağlantısı test edildi: başarısız (HTTP ${result.status}, ${useProductV2Filter ? "V2" : "V1"} uç noktası) — ${result.message}`
     });
 
     return NextResponse.json({
       success: result.ok,
       status: result.status,
       message: result.message,
+      apiVersion: useProductV2Filter ? "v2" : "v1",
       lastTestAt: updated?.lastTestAt?.toISOString() ?? null
     });
   } catch (error) {

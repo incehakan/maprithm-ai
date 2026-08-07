@@ -110,6 +110,200 @@ export async function changeCargoProviderOnTrendyol(params: {
   return { ok: true };
 }
 
+/**
+ * Desi ve Koli Bilgisi Bildirimi (updateBoxInfo) — developers.trendyol.com'dan .md formatıyla
+ * DOĞRULANDI (önceki tahmin doğruymuş). Özellikle Horoz ve CEVA Lojistik kargo firmaları için
+ * boxQuantity ve deci alanları zorunludur; diğer kargo firmalarında da gönderilebilir.
+ * PUT /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/box-info
+ * Body: { boxQuantity: number, deci: number }
+ */
+export async function updateBoxInfoOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  boxQuantity: number;
+  deci: number;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/box-info`;
+  const res = await trendyolPutJson(
+    params.userId,
+    params.storeId,
+    path,
+    { boxQuantity: params.boxQuantity, deci: params.deci },
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * İşçilik Bedeli Tutarı Gönderme — developers.trendyol.com'dan .md formatıyla doğrulanmış.
+ * Sadece belirli kategoriler (mücevher/sarrafiye/takı) için geçerli; laborCostPerItem >= 0 ve
+ * satırın faturalandırılacak tutarından büyük olamaz. Paket "delivered" olana kadar güncellenebilir.
+ * PUT /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/labor-costs
+ * Body: [{ orderLineId, laborCostPerItem }, ...]
+ */
+export async function updateLaborCostsOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  items: Array<{ orderLineId: number; laborCostPerItem: number }>;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/labor-costs`;
+  const res = await trendyolPutJson(
+    params.userId,
+    params.storeId,
+    path,
+    params.items,
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * Depo Bilgisi Güncelleme (updateWarehouse) — developers.trendyol.com'dan .md formatıyla
+ * doğrulanmış. Sadece Trendyol Express kullanan satıcılar için geçerli. Paket statusu
+ * Created/Invoiced/Picking dışındaysa Trendyol 400 döner.
+ * PUT /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/warehouse
+ * Body: { warehouseId: number }
+ */
+export async function updateWarehouseOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  warehouseId: number;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/warehouse`;
+  const res = await trendyolPutJson(
+    params.userId,
+    params.storeId,
+    path,
+    { warehouseId: params.warehouseId },
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// Sipariş Paketlerini Bölme (splitShipmentPackage ailesi)
+// Kaynak: developers.trendyol.com "Sipariş Paketlerini Bölme (splitShipmentPackage)"
+// sayfasının .md (Copy Page) formatından doğrulanmış 4 varyant.
+// ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Basit bölme: verilen orderLineId'leri mevcut paketten ayırıp yeni bir pakete taşır.
+ * Pakette bırakılan satırlar otomatik olarak orijinal (veya başka bir) pakette kalır.
+ * POST /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/split
+ * Body: { "orderLineIds": [orderLineId, ...] }
+ */
+export async function splitShipmentPackageOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  orderLineIds: number[];
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/split`;
+  const res = await trendyolPostJson(
+    params.userId,
+    params.storeId,
+    path,
+    { orderLineIds: params.orderLineIds },
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * Tek istekle birden fazla paket oluşturma: orderLineId grupları ayrı paketlere bölünür.
+ * Bir pakette olan TÜM orderLine'lar bu servise gönderilmemeli; kalanlar için sistem
+ * otomatik olarak ayrı bir paket oluşturur.
+ * POST /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/multi-split
+ * Body: { "splitGroups": [{ "orderLineIds": [...] }, ...] }
+ */
+export async function multiSplitShipmentPackageOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  splitGroups: Array<{ orderLineIds: number[] }>;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/multi-split`;
+  const res = await trendyolPostJson(
+    params.userId,
+    params.storeId,
+    path,
+    { splitGroups: params.splitGroups },
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * Miktar bazlı bölme: aynı orderLineId'nin farklı miktarlarını ayrı paketlere dağıtır
+ * (ör. 4 adetlik bir satırı [2,2] olarak iki pakete bölmek).
+ * POST /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/quantity-split
+ * Body: { "quantitySplit": [{ "orderLineId": ..., "quantities": [2, 2] }] }
+ */
+export async function splitShipmentPackageByQuantityOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  quantitySplit: Array<{ orderLineId: number; quantities: number[] }>;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/quantity-split`;
+  const res = await trendyolPostJson(
+    params.userId,
+    params.storeId,
+    path,
+    { quantitySplit: params.quantitySplit },
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
+/**
+ * Birden fazla bağımsız paket tanımıyla bölme (her paket kendi orderLineId+miktar listesiyle).
+ * POST /integration/order/sellers/{sellerId}/shipment-packages/{packageId}/split-packages
+ * Body: { "splitPackages": [{ "packageDetails": [{ "orderLineId": ..., "quantities": ... }] }] }
+ */
+export async function splitMultiPackageByQuantityOnTrendyol(params: {
+  userId: string;
+  storeId: string;
+  shipmentPackageId: string;
+  splitPackages: Array<{
+    packageDetails: Array<{ orderLineId: number; quantities: number }>;
+  }>;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const sellerId = await getSellerIdForStore(params.storeId);
+  const pkg = encodeURIComponent(params.shipmentPackageId.trim());
+  const path = `/integration/order/sellers/${encodeURIComponent(sellerId)}/shipment-packages/${pkg}/split-packages`;
+  const res = await trendyolPostJson(
+    params.userId,
+    params.storeId,
+    path,
+    { splitPackages: params.splitPackages },
+    { extraHeaders: sfHeaders() }
+  );
+  if (!res.ok) return { ok: false, message: res.message };
+  return { ok: true };
+}
+
 export type CommonLabelResult = {
   labelUrl: string | null;
   rawData: unknown;

@@ -21,6 +21,9 @@ export async function PUT(request: Request, { params }: Params) {
         isActive?: boolean;
         syncIntervalMinutes?: number;
         deactivateMissingFromFeed?: boolean;
+        overrideBrandName?: string | null;
+        shipmentAddressId?: string | null;
+        returnAddressId?: string | null;
       }
     | null;
 
@@ -44,6 +47,19 @@ export async function PUT(request: Request, { params }: Params) {
   }
   if (typeof body?.deactivateMissingFromFeed === "boolean") {
     data.deactivateMissingFromFeed = body.deactivateMissingFromFeed;
+  }
+  if (body && "overrideBrandName" in body) {
+    const v = body.overrideBrandName;
+    data.overrideBrandName =
+      typeof v === "string" && v.trim() ? v.trim().slice(0, 100) : null;
+  }
+  if (body && "shipmentAddressId" in body) {
+    const v = body.shipmentAddressId;
+    data.shipmentAddressId = typeof v === "string" && v.trim() ? v.trim() : null;
+  }
+  if (body && "returnAddressId" in body) {
+    const v = body.returnAddressId;
+    data.returnAddressId = typeof v === "string" && v.trim() ? v.trim() : null;
   }
 
   try {

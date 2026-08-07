@@ -35,6 +35,7 @@ export type TrendyolCreateProductItem = {
   shipmentAddressId?: number;
   returningAddressId?: number;
   origin?: string;
+  deliveryOption?: { deliveryDuration: number; fastDeliveryType?: string };
   images: Array<{ url: string }>;
   attributes: TrendyolCreateProductAttribute[];
 };
@@ -78,6 +79,10 @@ export type BuildTrendyolProductPayloadInput = {
   /** FEATURE_FLAGS.ORIGIN_FIELD açıkken ürün menşei kodu (2 harf) */
   productOrigin?: string | null;
   includeOriginField?: boolean;
+  /** Termin süresi (gün); null/undefined ise payload'a deliveryOption eklenmez */
+  deliveryDuration?: number | null;
+  /** "SAME_DAY_SHIPPING" | "FAST_DELIVERY" — sadece deliveryDuration=1 iken anlamlı */
+  fastDeliveryType?: string | null;
 };
 
 export type TrendyolResolvedCommercials = {
@@ -197,6 +202,7 @@ export type TrendyolUnapprovedUpdateItemV2 = {
   images?: Array<{ url: string }>;
   attributes?: TrendyolCreateProductAttributeV2[];
   origin?: string;
+  deliveryOption?: { deliveryDuration: number; fastDeliveryType?: string };
 };
 
 export function buildTrendyolUnapprovedUpdateItemV2(
@@ -220,6 +226,9 @@ export function buildTrendyolUnapprovedUpdateItemV2(
   };
   if (item.origin) {
     out.origin = item.origin;
+  }
+  if (item.deliveryOption) {
+    out.deliveryOption = item.deliveryOption;
   }
   return out;
 }
@@ -382,6 +391,20 @@ export function buildTrendyolCreateProductItem(
     if (originRaw) {
       item.origin = originRaw.slice(0, 2).toUpperCase();
     }
+  }
+
+  if (
+    input.deliveryDuration != null &&
+    Number.isFinite(input.deliveryDuration) &&
+    input.deliveryDuration > 0
+  ) {
+    const opt: { deliveryDuration: number; fastDeliveryType?: string } = {
+      deliveryDuration: Math.round(input.deliveryDuration)
+    };
+    if (input.fastDeliveryType && opt.deliveryDuration === 1) {
+      opt.fastDeliveryType = input.fastDeliveryType;
+    }
+    item.deliveryOption = opt;
   }
 
   return item;

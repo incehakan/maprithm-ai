@@ -6,7 +6,7 @@ import { ProductsPageToolbar } from "@/components/products/ProductsPageToolbar";
 import { getProductDisplayStatus } from "@/lib/productDisplayStatus";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
 
-type FilterStatus = "active" | "published" | "out_of_stock" | "archived";
+type FilterStatus = "active" | "published" | "out_of_stock" | "archived" | "unsent";
 
 async function getProducts(
   userId: string,
@@ -46,12 +46,21 @@ async function getProducts(
               some: { platform: "trendyol", publishStatus: "published" }
             }
           }
-        : {
-            userId,
-            storeId,
-            stock: { gt: 0 },
-            lifecycleStatus: { notIn: ["archived", "deleted"] }
-          };
+        : status === "unsent"
+          ? {
+              userId,
+              storeId,
+              lifecycleStatus: { notIn: ["archived", "deleted"] },
+              marketplaceMappings: {
+                none: { platform: "trendyol" }
+              }
+            }
+          : {
+              userId,
+              storeId,
+              stock: { gt: 0 },
+              lifecycleStatus: { notIn: ["archived", "deleted"] }
+            };
 
   const products = await prisma.product.findMany({
     where: where as any,
@@ -119,7 +128,8 @@ export default async function ProductsPage({
     "active",
     "published",
     "out_of_stock",
-    "archived"
+    "archived",
+    "unsent"
   ].includes(status)
     ? status
     : "active";
@@ -140,6 +150,7 @@ export default async function ProductsPage({
 
       <div className="flex flex-wrap items-center gap-2">
         <Link href="/products?status=active" className="inline-flex rounded-md border border-emerald-700 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-900/30">Aktif Ürünler</Link>
+        <Link href="/products?status=unsent" className="inline-flex rounded-md border border-sky-700 px-3 py-1 text-xs text-sky-300 hover:bg-sky-900/30">Yeni / Gönderilmemiş</Link>
         <Link href="/products?status=published" className="inline-flex rounded-md border border-indigo-700 px-3 py-1 text-xs text-indigo-300 hover:bg-indigo-900/30">Yayındakiler</Link>
         <Link href="/products?status=out_of_stock" className="inline-flex rounded-md border border-amber-700 px-3 py-1 text-xs text-amber-300 hover:bg-amber-900/30">Tükenenler</Link>
         <Link href="/products?status=archived" className="inline-flex rounded-md border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:bg-zinc-900/40">Arşivdekiler</Link>

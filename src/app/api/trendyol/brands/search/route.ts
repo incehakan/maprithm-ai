@@ -28,21 +28,20 @@ export async function GET(request: Request) {
     });
   }
 
-  const brands = await prisma.trendyolBrand.findMany({
+  const brands = await prisma.marketplaceBrand.findMany({
     where: {
-      AND: [
-        trendyolBrandListableWhere,
-        { name: { contains: q, mode: "insensitive" } }
-      ]
+      platform: "TRENDYOL",
+      name: { contains: q, mode: "insensitive" },
+      isActive: true
     },
     select: {
-      brandId: true,
+      externalId: true,
       name: true,
       isActive: true
     },
     orderBy: { name: "asc" },
     take: limit
-  });
+  }).then(list => list.map(b => ({ brandId: parseInt(b.externalId, 10), name: b.name, isActive: b.isActive })));
 
   return NextResponse.json({ brands });
 }

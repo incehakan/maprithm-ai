@@ -80,30 +80,33 @@ export async function loadCategoryAttributeDefs(
   options?: LoadCategoryAttributeDefsOptions
 ): Promise<CategoryAttributeDef[]> {
   const allValues = Boolean(options?.allValues);
-  const rows = await prisma.trendyolCategoryAttribute.findMany({
-    where: { categoryId },
+  const rows = await prisma.marketplaceAttribute.findMany({
+    where: { platform: "TRENDYOL", categoryId: categoryId.toString() },
     include: {
       values: allValues
-        ? { orderBy: { attributeValue: "asc" } }
+        ? { orderBy: { name: "asc" } }
         : {
-            orderBy: { attributeValue: "asc" },
+            orderBy: { name: "asc" },
             take: MAX_VALUES_PER_ATTRIBUTE
           }
     },
-    orderBy: [{ isRequired: "desc" }, { attributeName: "asc" }]
+    orderBy: [{ required: "desc" }, { name: "asc" }]
   });
 
-  return rows.map((r) => ({
-    attributeId: r.attributeId,
-    attributeName: r.attributeName,
-    isRequired: r.isRequired,
-    isVariantable: r.isVariantable,
-    allowCustom: r.allowCustom,
-    values: r.values.map((v) => ({
-      attributeValueId: v.attributeValueId,
-      attributeValue: v.attributeValue
-    }))
-  }));
+  return rows.map((r: any) => {
+    const meta = r.metadata && typeof r.metadata === "object" ? (r.metadata as any) : {};
+    return {
+      attributeId: parseInt(r.externalId, 10),
+      attributeName: r.name,
+      isRequired: r.required,
+      isVariantable: meta.isVariantable || false,
+      allowCustom: meta.allowCustom || false,
+      values: r.values.map((v: any) => ({
+        attributeValueId: parseInt(v.externalId, 10),
+        attributeValue: v.name
+      }))
+    };
+  });
 }
 
 /**

@@ -120,15 +120,15 @@ export async function getCargoCompaniesForStore(params: {
   let primaryStatus: number | undefined;
 
   const readDb = () =>
-    prisma.storeTrendyolCargoCompany.findMany({
+    prisma.marketplaceCarrier.findMany({
       where: {
         storeId: params.storeId,
-        platform: "trendyol",
+        platform: "TRENDYOL",
         isActive: true
       },
-      orderBy: { cargoCompanyId: "asc" },
-      select: { cargoCompanyId: true, name: true }
-    });
+      orderBy: { code: "asc" },
+      select: { code: true, name: true }
+    }).then(list => list.map(c => ({ cargoCompanyId: parseInt(c.code, 10), name: c.name })));
 
   let rows = await readDb();
   if (rows.length > 0) {

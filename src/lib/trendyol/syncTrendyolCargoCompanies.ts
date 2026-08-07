@@ -97,26 +97,26 @@ export async function syncTrendyolCargoCompanies(params: {
   for (const row of merged) {
     const raw =
       row.rawData === Prisma.JsonNull ? Prisma.JsonNull : row.rawData;
-    await prisma.storeTrendyolCargoCompany.upsert({
+    await prisma.marketplaceCarrier.upsert({
       where: {
-        storeId_platform_cargoCompanyId: {
+        storeId_platform_code: {
           storeId: params.storeId,
-          platform: "trendyol",
-          cargoCompanyId: row.cargoCompanyId
+          platform: "TRENDYOL",
+          code: row.cargoCompanyId.toString()
         }
       },
       create: {
         storeId: params.storeId,
-        platform: "trendyol",
-        cargoCompanyId: row.cargoCompanyId,
+        platform: "TRENDYOL",
+        code: row.cargoCompanyId.toString(),
         name: row.name,
-        rawData: raw,
+        metadata: raw,
         isActive: true,
         lastSyncedAt: now
       },
       update: {
         name: row.name,
-        rawData: raw,
+        metadata: raw,
         isActive: true,
         lastSyncedAt: now
       }

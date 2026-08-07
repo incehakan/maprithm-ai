@@ -8,6 +8,7 @@ import {
   SectionHeader,
   StatusBadge
 } from "@/components/premium/design-system";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type StatusPayload = {
   success: boolean;
@@ -74,7 +75,7 @@ export default function AdminSystemStatusPage() {
       const res = await fetch("/api/admin/system-status", { cache: "no-store" });
       const payload = await res.json();
       if (!res.ok || !payload?.success) {
-        throw new Error(payload?.error || "System status alınamadı.");
+        throw new Error(extractApiErrorMessage(payload, "System status alınamadı."));
       }
       setData(payload as StatusPayload);
     } catch (e) {

@@ -66,17 +66,17 @@ export async function GET(request: Request) {
 
   const defsByCategory = new Map<number, CategoryAttrDef[]>();
   for (const cid of categoryIds) {
-    const rows = await prisma.trendyolCategoryAttribute.findMany({
-      where: { categoryId: cid },
-      select: { attributeId: true, attributeName: true, isRequired: true },
-      orderBy: { attributeName: "asc" }
+    const rows = await prisma.marketplaceAttribute.findMany({
+      where: { platform: "TRENDYOL", categoryId: cid.toString() },
+      select: { categoryId: true, externalId: true, name: true, required: true },
+      orderBy: { name: "asc" }
     });
     defsByCategory.set(
       cid,
       rows.map((r) => ({
-        attributeId: r.attributeId,
-        attributeName: r.attributeName,
-        isRequired: r.isRequired
+        attributeId: parseInt(r.externalId, 10),
+        attributeName: r.name,
+        isRequired: r.required
       }))
     );
   }
@@ -90,22 +90,22 @@ export async function GET(request: Request) {
   ];
   const brands =
     brandIds.length > 0
-      ? await prisma.trendyolBrand.findMany({
-          where: { brandId: { in: brandIds } },
-          select: { brandId: true, name: true }
-        })
+      ? await prisma.marketplaceBrand.findMany({
+          where: { platform: "TRENDYOL", externalId: { in: brandIds.map(id => id.toString()) } },
+          select: { externalId: true, name: true }
+        }).then(list => list.map(b => ({ brandId: parseInt(b.externalId, 10), name: b.name })))
       : [];
-  const brandNameById = new Map(brands.map((b) => [b.brandId, b.name]));
+  const brandNameById = new Map(brands.map((b: any) => [b.brandId, b.name]));
 
   const categories =
     categoryIds.length > 0
-      ? await prisma.trendyolCategory.findMany({
-          where: { categoryId: { in: categoryIds } },
-          select: { categoryId: true, name: true }
-        })
+      ? await prisma.marketplaceCategory.findMany({
+          where: { platform: "TRENDYOL", externalId: { in: categoryIds.map(id => id.toString()) } },
+          select: { externalId: true, name: true }
+        }).then(list => list.map(c => ({ categoryId: parseInt(c.externalId, 10), name: c.name })))
       : [];
   const categoryNameById = new Map(
-    categories.map((c) => [c.categoryId, c.name])
+    categories.map((c: any) => [c.categoryId, c.name])
   );
 
   const rows: PublishReadinessRow[] = [];
@@ -151,15 +151,17 @@ export async function GET(request: Request) {
       mappingId: m.id,
       publishStatus: m.publishStatus,
       trendyolBrandId: m.trendyolBrandId,
-      brandName:
+      brandName: (
         m.trendyolBrandId != null
           ? (brandNameById.get(m.trendyolBrandId) ?? null)
-          : null,
+          : null
+      ) as string | null,
       trendyolCategoryId: m.trendyolCategoryId,
-      categoryName:
+      categoryName: (
         m.trendyolCategoryId != null
           ? (categoryNameById.get(m.trendyolCategoryId) ?? null)
-          : null,
+          : null
+      ) as string | null,
       missingCount: missing.length,
       missing,
       ready,

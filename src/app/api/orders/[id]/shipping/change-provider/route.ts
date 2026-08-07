@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { recordShippingOperationAudit } from "@/lib/orderShippingAudit";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
-import { resolveCarrierDisplayName } from "@/lib/trendyolCarrier";
+import { resolveCarrierDisplayName, matchOrderCargoProvider } from "@/lib/trendyolCarrier";
 import { changeCargoProviderOnTrendyol } from "@/lib/trendyolShipping";
 import { secureMarketplaceOrderUpdateMany } from "@/lib/security/storeScope";
 
@@ -98,17 +98,20 @@ export async function POST(
     return NextResponse.json({ success: false, error: api.message }, { status: 502 });
   }
 
-  const ref = await prisma.marketplaceCarrierReference.findFirst({
-    where: { platform: "trendyol", providerCode, isActive: true },
-    select: { providerName: true }
+  const matched = await matchOrderCargoProvider({
+    storeId: ctx.storeId,
+    providerCode,
+    providerName:
+      (typeof body.providerName === "string" && body.providerName.trim()) ||
+      null
   });
   const displayName =
     (typeof body.providerName === "string" && body.providerName.trim()) ||
-    ref?.providerName ||
+    matched.providerName ||
     resolveCarrierDisplayName(providerCode, null);
 
   await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
-    cargoProviderCode: providerCode,
+    cargoProviderCode: matched.providerCode || providerCode,
     cargoProviderName: displayName,
     cargoProviderChangedAt: new Date(),
     shippingOperationStatus: "success",

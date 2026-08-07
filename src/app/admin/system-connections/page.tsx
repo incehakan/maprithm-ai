@@ -11,6 +11,7 @@ import {
   StatusBadge
 } from "@/components/premium/design-system";
 import { FieldLabel } from "@/components/ui/field-help";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 import { cn } from "@/lib/utils";
 
 type Conn = {
@@ -65,7 +66,7 @@ export default function AdminSystemConnectionsPage() {
     try {
       const res = await fetch("/api/admin/system-connections/trendyol");
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Yükleme hatası");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Yükleme hatası"));
       const conn = data.connection as Conn | null;
       setConnection(conn);
       if (conn) {
@@ -104,7 +105,7 @@ export default function AdminSystemConnectionsPage() {
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Kayıt hatası");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Kayıt hatası"));
       setApiKey("");
       setApiSecret("");
       setMessageTone("success");
@@ -136,7 +137,7 @@ export default function AdminSystemConnectionsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Test başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Test başarısız."));
       }
       setTestResult({
         success: Boolean(data.success),

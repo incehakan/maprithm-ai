@@ -10,6 +10,7 @@ export type UserSettingsData = {
   defaultDesi: number;
   fallbackBrand: string;
   fallbackCategory: string;
+  xmlBarcodePrefix: string;
 };
 
 export const DEFAULT_SETTINGS: UserSettingsData = {
@@ -21,7 +22,8 @@ export const DEFAULT_SETTINGS: UserSettingsData = {
   defaultTargetProfitRate: null,
   defaultDesi: 1,
   fallbackBrand: "",
-  fallbackCategory: ""
+  fallbackCategory: "",
+  xmlBarcodePrefix: ""
 };
 
 export async function getUserSettings(params: {
@@ -53,7 +55,8 @@ export async function getUserSettings(params: {
       defaultTargetProfitRate: settings.defaultTargetProfitRate,
       defaultDesi: settings.defaultDesi ?? 1,
       fallbackBrand: settings.fallbackBrand ?? "",
-      fallbackCategory: settings.fallbackCategory ?? ""
+      fallbackCategory: settings.fallbackCategory ?? "",
+      xmlBarcodePrefix: settings.xmlBarcodePrefix ?? ""
     };
   } catch (err) {
     console.error("getUserSettings error:", err);

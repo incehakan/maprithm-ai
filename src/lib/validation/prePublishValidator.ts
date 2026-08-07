@@ -443,18 +443,18 @@ export async function validateProductForTrendyolPublish(
 
   let defs: CategoryAttrDef[] = [];
   if (mapping.trendyolCategoryId != null) {
-    const attrRows = await prisma.trendyolCategoryAttribute.findMany({
-      where: { categoryId: mapping.trendyolCategoryId },
+    const attrRows = await prisma.marketplaceAttribute.findMany({
+      where: { platform: "TRENDYOL", categoryId: mapping.trendyolCategoryId.toString() },
       select: {
-        attributeId: true,
-        attributeName: true,
-        isRequired: true
+        externalId: true,
+        name: true,
+        required: true
       }
     });
-    defs = attrRows.map((a) => ({
-      attributeId: a.attributeId,
-      attributeName: a.attributeName,
-      isRequired: a.isRequired
+    defs = attrRows.map((a: any) => ({
+      attributeId: parseInt(a.externalId, 10),
+      attributeName: a.name,
+      isRequired: Boolean(a.required)
     }));
   }
 

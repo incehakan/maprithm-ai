@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { TRENDYOL_WEBHOOK_STATUSES } from "@/lib/trendyolWebhooks";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type WebhookRow = {
   id?: string;
@@ -45,7 +46,7 @@ export function TrendyolWebhooksPanel() {
       const res = await fetch("/api/integrations/trendyol/webhooks");
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Liste alınamadı.");
+        throw new Error(extractApiErrorMessage(data, "Liste alınamadı."));
       }
       const arr = Array.isArray(data.data) ? (data.data as WebhookRow[]) : [];
       setItems(arr);
@@ -96,7 +97,7 @@ export function TrendyolWebhooksPanel() {
         body: JSON.stringify(body)
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Oluşturulamadı");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Oluşturulamadı"));
       setUrl("");
       setPassword("");
       setApiKey("");
@@ -118,7 +119,7 @@ export function TrendyolWebhooksPanel() {
         { method: "DELETE" }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Silinemedi");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Silinemedi"));
       setEditId(null);
       await load();
     } catch (err) {
@@ -156,7 +157,7 @@ export function TrendyolWebhooksPanel() {
         }
       );
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Güncellenemedi");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Güncellenemedi"));
       setEditId(null);
       setEditPass("");
       setEditApiKey("");

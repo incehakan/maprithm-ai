@@ -53,19 +53,21 @@ type Props = {
     failedCount: number;
     createdAt: Date;
   }>;
+  label?: string;
 };
 
 export function OrderSyncStatusPanel({
   syncState,
   running,
   latestFailed,
-  recentJobs
+  recentJobs,
+  label = "Sipariş senkron durumu"
 }: Props) {
   return (
     <div className="card border border-white/10 bg-white/[0.02]">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-100">Sipariş senkron durumu</div>
+          <div className="text-sm font-semibold text-slate-100">{label}</div>
           <p className="mt-1 text-xs text-slate-500">
             Arka plan işleri ve son başarılı çekim zamanı (store bazlı).
           </p>

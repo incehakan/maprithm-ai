@@ -373,8 +373,9 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
 
         const nextName = item.row.normalizedName || item.product.name;
         const nextDesc = item.row.normalizedDescription ?? item.product.description;
-        const nextBrand = item.row.normalizedBrand ?? item.product.brand;
+        const nextBrand = source.overrideBrandName?.trim() || item.row.normalizedBrand || item.product.brand;
         const nextSku = item.row.normalizedSku ?? item.product.sku;
+        const nextBarcode = item.row.normalizedBarcode ?? (item.product as { barcode?: string | null }).barcode ?? null;
 
         const hashes = hashesFromProductSnapshot({
           name: nextName,
@@ -399,6 +400,7 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             description: nextDesc,
             brand: nextBrand,
             sku: nextSku,
+            barcode: nextBarcode,
             price: item.nextPrice,
             stock: item.nextStock,
             ...(!hasCostBootstrap ? { costPrice: item.nextPrice } : {}),
@@ -539,7 +541,9 @@ export async function runXmlFeedSync(params: RunXmlFeedSyncParams): Promise<Sync
             stock: nextStock,
             costPrice: nextPrice,
             sku: item.row.normalizedSku ?? null,
-            brand: item.row.normalizedBrand ?? null,
+            barcode: item.row.normalizedBarcode ?? null,
+            brand: source.overrideBrandName?.trim() || item.row.normalizedBrand || null,
+            sourceXmlFeedSourceId: source.id,
             status: "ready",
             lifecycleStatus: "ready",
             mainImageUrl: imageUrls[0] ?? null,

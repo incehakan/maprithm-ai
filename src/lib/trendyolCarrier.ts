@@ -235,3 +235,118 @@ export async function syncGlobalTrendyolCarrierCompanies(): Promise<{
 
   return { count: list.length, source };
 }
+
+export type MatchedOrderCarrier = {
+  providerCode: string | null;
+  providerName: string | null;
+  matchedFrom: "reference" | "store_carrier" | "name" | "passthrough" | null;
+};
+
+/**
+ * Sipariş kargo alanlarını generic tablolarla eşleştirir:
+ * - MarketplaceCarrierReference (global providerCode)
+ * - MarketplaceCarrier (mağaza cargoCompanyId → code)
+ */
+export async function matchOrderCargoProvider(params: {
+  storeId: string;
+  providerCode?: string | null;
+  providerName?: string | null;
+}): Promise<MatchedOrderCarrier> {
+  const rawCode = params.providerCode?.trim() || null;
+  const rawName = params.providerName?.trim() || null;
+
+  if (!rawCode && !rawName) {
+    return { providerCode: null, providerName: null, matchedFrom: null };
+  }
+
+  if (rawCode) {
+    const byRef = await prisma.marketplaceCarrierReference.findFirst({
+      where: {
+        platform: "trendyol",
+        providerCode: rawCode,
+        isActive: true
+      },
+      select: { providerCode: true, providerName: true }
+    });
+    if (byRef) {
+      return {
+        providerCode: byRef.providerCode,
+        providerName: rawName || byRef.providerName,
+        matchedFrom: "reference"
+      };
+    }
+
+    // Sayısal kod → mağaza MarketplaceCarrier (cargoCompanyId)
+    if (/^\d+$/.test(rawCode)) {
+      const storeCarrier = await prisma.marketplaceCarrier.findFirst({
+        where: {
+          storeId: params.storeId,
+          platform: "TRENDYOL",
+          code: rawCode,
+          isActive: true
+        },
+        select: { code: true, name: true, metadata: true }
+      });
+      if (storeCarrier) {
+        const meta =
+          storeCarrier.metadata != null &&
+          typeof storeCarrier.metadata === "object" &&
+          !Array.isArray(storeCarrier.metadata)
+            ? (storeCarrier.metadata as Record<string, unknown>)
+            : null;
+        const metaCode =
+          (typeof meta?.providerCode === "string" && meta.providerCode.trim()) ||
+          (typeof meta?.code === "string" && meta.code.trim()) ||
+          null;
+        return {
+          providerCode: metaCode || storeCarrier.code,
+          providerName: rawName || storeCarrier.name,
+          matchedFrom: "store_carrier"
+        };
+      }
+    }
+  }
+
+  if (rawName) {
+    const byName = await prisma.marketplaceCarrierReference.findFirst({
+      where: {
+        platform: "trendyol",
+        isActive: true,
+        providerName: { equals: rawName, mode: "insensitive" }
+      },
+      select: { providerCode: true, providerName: true }
+    });
+    if (byName) {
+      return {
+        providerCode: rawCode || byName.providerCode,
+        providerName: byName.providerName,
+        matchedFrom: "name"
+      };
+    }
+
+    // Kısmi isim eşleşmesi (örn. "Yurtiçi" ↔ "Yurtiçi Kargo (MP)")
+    const refs = await prisma.marketplaceCarrierReference.findMany({
+      where: { platform: "trendyol", isActive: true },
+      select: { providerCode: true, providerName: true },
+      take: 200
+    });
+    const needle = rawName.toLocaleLowerCase("tr-TR");
+    const fuzzy = refs.find((r) => {
+      const n = r.providerName.toLocaleLowerCase("tr-TR");
+      return n.includes(needle) || needle.includes(n);
+    });
+    if (fuzzy) {
+      return {
+        providerCode: rawCode || fuzzy.providerCode,
+        providerName: fuzzy.providerName,
+        matchedFrom: "name"
+      };
+    }
+  }
+
+  return {
+    providerCode: rawCode,
+    providerName: rawName || resolveCargoProviderDisplay(rawCode, rawName),
+    matchedFrom: "passthrough"
+  };
+}

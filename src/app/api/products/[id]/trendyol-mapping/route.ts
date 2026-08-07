@@ -38,6 +38,10 @@ function serializeMapping(m: Record<string, unknown>) {
     publishStatus: (m.publishStatus as string) ?? "draft",
     approvalState: (m.approvalState as string) ?? "UNAPPROVED",
     trendyolContentId: (m.trendyolContentId as number) ?? null,
+    deliveryDuration: (m.deliveryDuration as number) ?? null,
+    fastDeliveryType: (m.fastDeliveryType as string) ?? null,
+    autoRepriceEnabled: (m.autoRepriceEnabled as boolean) ?? false,
+    repriceMinPrice: (m.repriceMinPrice as number) ?? null,
     publishedAt: (m.publishedAt as Date | null)?.toISOString?.() ?? null,
     unpublishedAt: (m.unpublishedAt as Date | null)?.toISOString?.() ?? null,
     archivedAt: (m.archivedAt as Date | null)?.toISOString?.() ?? null,
@@ -138,7 +142,11 @@ export async function GET(request: Request, { params }: Params) {
     useProductStock: true,
     publishStatus: "draft",
     mainImageUrl: ((product as any).mainImageUrl as string) ?? "",
-    imageUrls: ((product as any).imageUrls as unknown) ?? null
+    imageUrls: ((product as any).imageUrls as unknown) ?? null,
+    deliveryDuration: null as number | null,
+    fastDeliveryType: null as string | null,
+    autoRepriceEnabled: false,
+    repriceMinPrice: null as number | null
   };
 
   const mappingRow = await prisma.productMarketplaceMapping.findFirst({
@@ -167,25 +175,29 @@ export async function GET(request: Request, { params }: Params) {
   const mappingBrandId = mapping?.trendyolBrandId ?? null;
   const selectedBrandRow =
     mappingBrandId != null
-      ? await prisma.trendyolBrand.findFirst({
-          where: { brandId: mappingBrandId as number }
+      ? await prisma.marketplaceBrand.findFirst({
+          where: { platform: "TRENDYOL", externalId: mappingBrandId.toString() }
         })
       : null;
   const trendyolBrandName = selectedBrandRow?.name ?? null;
   const brands =
     selectedBrandRow != null
-      ? [{ brandId: selectedBrandRow.brandId, name: selectedBrandRow.name }]
+      ? [{ brandId: parseInt(selectedBrandRow.externalId, 10), name: selectedBrandRow.name }]
       : [];
 
-  const categories = await prisma.trendyolCategory.findMany({
+  const categories = await prisma.marketplaceCategory.findMany({
     where: {
-      ...trendyolCategoryListableWhere,
-      isLeaf: true
+      platform: "TRENDYOL",
+      isActive: true
     },
-    select: { categoryId: true, name: true, isLeaf: true },
+    select: { externalId: true, name: true, metadata: true },
     orderBy: { name: "asc" },
     take: 8000
-  });
+  }).then(cats => cats.map(c => ({
+    categoryId: parseInt(c.externalId, 10),
+    name: c.name,
+    isLeaf: c.metadata && typeof c.metadata === "object" && (c.metadata as any).isLeaf === true
+  })).filter(c => c.isLeaf));
 
   const { searchParams } = new URL(request.url);
   const previewRaw = searchParams.get("previewCategoryId");
@@ -215,38 +227,39 @@ export async function GET(request: Request, { params }: Params) {
   }> = [];
 
   if (effectiveCategoryId != null) {
-    const attrs = await prisma.trendyolCategoryAttribute.findMany({
-      where: { categoryId: effectiveCategoryId },
+    const attrs = await prisma.marketplaceAttribute.findMany({
+      where: { platform: "TRENDYOL", categoryId: effectiveCategoryId.toString() },
       select: {
         id: true,
         categoryId: true,
-        attributeId: true,
-        attributeName: true,
-        isRequired: true,
-        isVariantable: true,
-        allowCustom: true,
-        rawData: true,
+        externalId: true,
+        name: true,
+        required: true,
+        metadata: true,
         values: {
-          orderBy: { attributeValue: "asc" }
+          orderBy: { name: "asc" }
         }
       },
-      orderBy: { attributeName: "asc" }
+      orderBy: { name: "asc" }
     });
 
-    categoryAttributes = attrs.map((attr) => ({
-      id: attr.id,
-      categoryId: attr.categoryId,
-      attributeId: attr.attributeId,
-      attributeName: attr.attributeName,
-      isRequired: attr.isRequired,
-      isVariantable: attr.isVariantable,
-      allowCustom: attr.allowCustom,
-      isSlicer: readCategoryAttrIsSlicer(attr.rawData),
-      values: attr.values.map((v) => ({
-        attributeValueId: v.attributeValueId,
-        attributeValue: v.attributeValue
-      }))
-    }));
+    categoryAttributes = attrs.map((attr) => {
+      const meta = attr.metadata && typeof attr.metadata === "object" ? (attr.metadata as any) : {};
+      return {
+        id: attr.id,
+        categoryId: parseInt(attr.categoryId, 10),
+        attributeId: parseInt(attr.externalId, 10),
+        attributeName: attr.name,
+        isRequired: attr.required,
+        isVariantable: meta.isVariantable || false,
+        allowCustom: meta.allowCustom || false,
+        isSlicer: meta.isSlicer || false,
+        values: attr.values.map((v: any) => ({
+          attributeValueId: parseInt(v.externalId, 10),
+          attributeValue: v.name
+        }))
+      };
+    });
   }
 
   const defs: CategoryAttrDef[] = categoryAttributes.map((a) => ({
@@ -369,6 +382,10 @@ type PostBody = {
   mainImageUrl?: string | null;
   imageUrls?: unknown;
   origin?: string | null;
+  deliveryDuration?: number | null;
+  fastDeliveryType?: string | null;
+  autoRepriceEnabled?: boolean | null;
+  repriceMinPrice?: number | null;
   attributes?: Array<{
     attributeId: number;
     attributeName: string;
@@ -467,7 +484,20 @@ export async function POST(request: Request, { params }: Params) {
     imageUrls:
       normalizedImageUrls.length > 0
         ? (normalizedImageUrls as Prisma.InputJsonValue)
-        : Prisma.JsonNull
+        : Prisma.JsonNull,
+    deliveryDuration:
+      body.deliveryDuration != null && Number.isFinite(Number(body.deliveryDuration))
+        ? Math.round(Number(body.deliveryDuration))
+        : null,
+    fastDeliveryType:
+      body.fastDeliveryType === "SAME_DAY_SHIPPING" || body.fastDeliveryType === "FAST_DELIVERY"
+        ? body.fastDeliveryType
+        : null,
+    autoRepriceEnabled: body.autoRepriceEnabled === true,
+    repriceMinPrice:
+      body.repriceMinPrice != null && Number.isFinite(Number(body.repriceMinPrice))
+        ? Number(body.repriceMinPrice)
+        : null
   };
 
   try {

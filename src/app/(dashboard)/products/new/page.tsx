@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 const STATUS_OPTIONS = [
   { value: "draft", label: "Taslak" },
@@ -72,7 +73,7 @@ function NewProductPageContent() {
 
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(data?.error || "Ürün kaydedilemedi.");
+        throw new Error(extractApiErrorMessage(data, "Ürün kaydedilemedi."));
       }
 
       router.push("/products");
@@ -114,7 +115,7 @@ function NewProductPageContent() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="category">
               Kategori
@@ -139,7 +140,7 @@ function NewProductPageContent() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="sku">
               SKU
@@ -216,7 +217,7 @@ function NewProductPageContent() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="price">
               Fiyat (₺)

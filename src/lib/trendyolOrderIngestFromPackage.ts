@@ -8,7 +8,9 @@ import {
   type ExistingPackageForSplit,
   type LineRefForSplit
 } from "@/lib/orderLifecycle";
+import { matchOrderCargoProvider } from "@/lib/trendyolCarrier";
 import {
+  buildTrackingLink,
   normalizeTrackingData,
   trackingEventsFingerprint,
   trackingOrderFieldsFingerprint
@@ -136,7 +138,23 @@ export async function upsertTrendyolShipmentPackageForStore(
   const orderMs = normalizeOrderDateMs(raw);
   const orderDate = orderMs != null ? new Date(orderMs) : new Date();
   const newStatus = normalizePackageStatus(raw);
-  const tn = normalizeTrackingData(raw);
+  const tnBase = normalizeTrackingData(raw);
+  const carrierMatch = await matchOrderCargoProvider({
+    storeId,
+    providerCode: tnBase.cargoProviderCode,
+    providerName: tnBase.cargoProviderName
+  });
+  const matchedCode = carrierMatch.providerCode ?? tnBase.cargoProviderCode;
+  const matchedName = carrierMatch.providerName ?? tnBase.cargoProviderName;
+  const rebuiltLink =
+    tnBase.cargoTrackingLink ||
+    buildTrackingLink(tnBase.cargoTrackingNumber, matchedCode, matchedName);
+  const tn = {
+    ...tnBase,
+    cargoProviderCode: matchedCode,
+    cargoProviderName: matchedName,
+    cargoTrackingLink: rebuiltLink
+  };
   const incomingLineRefs = buildLineRefsFromRaw(raw);
 
   const [invoiceJson, shipmentJson] = extractInvoiceShipment(raw);

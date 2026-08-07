@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -60,7 +61,7 @@ export default function LoginPage() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setError(data?.error ?? "Şifre sıfırlanamadı.");
+        setError(extractApiErrorMessage(data, "Şifre sıfırlanamadı."));
         return;
       }
       setSuccess("Şifre güncellendi. Yeni şifrenizle giriş yapabilirsiniz.");

@@ -9,7 +9,11 @@ import {
   SectionHeader,
   StatusBadge
 } from "@/components/premium/design-system";
-import { ReturnDetailActions } from "@/components/returns/ReturnDetailActions";
+import { ReturnDetailActions, type ReturnPlatform } from "@/components/returns/ReturnDetailActions";
+
+function toReturnPlatform(p: string): ReturnPlatform {
+  return p === "hepsiburada" ? "hepsiburada" : "trendyol";
+}
 
 function formatMoney(n: number | null | undefined, cur: string) {
   if (n == null || Number.isNaN(n)) return "—";
@@ -61,20 +65,30 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
     include: {
       lines: { orderBy: { createdAt: "asc" } },
       events: { orderBy: { createdAt: "desc" } }
-    }
+    },
+    // claimType HB platformunda talep tipini taşır (Return, MissingItem vb.)
   });
 
   if (!claim) notFound();
 
   const canManage = hasPermission(ctx.permissionKeys, "returns.manage");
-  const rawJson =
-    claim.rawData != null ? JSON.stringify(claim.rawData, null, 2) : "";
+  const rawJson = claim.rawData != null ? JSON.stringify(claim.rawData, null, 2) : "";
+
+  // claimType: HB raw payload'dan "claimType" alanı — Return, MissingItem, MissingPart vb.
+  const claimType =
+    claim.rawData != null && typeof claim.rawData === "object" && !Array.isArray(claim.rawData)
+      ? ((claim.rawData as Record<string, unknown>).claimType as string | undefined) ??
+        ((claim.rawData as Record<string, unknown>).type as string | undefined)
+      : undefined;
+
+  const platformLabel =
+    claim.platform === "hepsiburada" ? "Hepsiburada" : claim.platform === "trendyol" ? "Trendyol" : claim.platform;
 
   return (
     <>
       <PageHeader
         title={`İade · ${claim.claimId}`}
-        subtitle={`Sipariş: ${claim.orderNumber ?? "—"} · Paket: ${claim.shipmentPackageId ?? "—"}`}
+        subtitle={`${platformLabel} · Sipariş: ${claim.orderNumber ?? "—"} · Paket: ${claim.shipmentPackageId ?? "—"}`}
         actions={
           <Link href="/returns" className="text-sm text-indigo-300 hover:underline">
             ← Liste
@@ -203,7 +217,13 @@ export default async function ReturnDetailPage({ params }: { params: Promise<{ i
         <div className="space-y-6">
           <PanelSurface>
             <SectionHeader title="İşlemler" />
-            <ReturnDetailActions recordId={claim.id} canManage={canManage} />
+            <ReturnDetailActions
+              recordId={claim.id}
+              platform={toReturnPlatform(claim.platform)}
+              claimType={claimType}
+              claimStatus={claim.claimStatus}
+              canManage={canManage}
+            />
           </PanelSurface>
 
           <PanelSurface>

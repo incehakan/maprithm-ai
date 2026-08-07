@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type AiProductResult = {
   title: string;
@@ -46,7 +47,7 @@ function AiProductPageContent() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(data?.error || "İçerik oluşturulamadı.");
+        throw new Error(extractApiErrorMessage(data, "İçerik oluşturulamadı."));
       }
 
       setResult({
@@ -95,7 +96,7 @@ function AiProductPageContent() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(data?.error || "Ürün kaydedilemedi.");
+        throw new Error(extractApiErrorMessage(data, "Ürün kaydedilemedi."));
       }
 
       // Basit toast

@@ -73,27 +73,108 @@ model Store {
   trendyolReturnReasons       TrendyolReturnReason[]
   trendyolFinanceSyncRuns     TrendyolFinanceSyncRun[]
   trendyolFinanceLines        TrendyolFinanceLine[]
-  /// Trendyol ürün yayını için mağaza bazlı senkronize kargo firması listesi (cargoCompanyId).
-  storeTrendyolCargoCompanies StoreTrendyolCargoCompany[]
+  marketplaceCarriers         MarketplaceCarrier[]
+  marketplaceBrands           MarketplaceBrand[]
+  marketplaceCategories       MarketplaceCategory[]
+  marketplaceAttributes       MarketplaceAttribute[]
+  /// Maliyet fiyatı aralığına göre komisyon/kargo/kâr oranı tanımları (kademeli fiyatlandırma).
+  pricingTiers PricingTier[]
+  /// Ürün/fiyat/stok bazlı pazaryeri gönderim kısıtlaması (mağaza başına tek kayıt).
+  publishRule MarketplacePublishRule?
+  /// Buybox'a göre otomatik yeniden fiyatlandırma ayarları (mağaza başına tek kayıt).
+  buyboxRepricingSettings BuyboxRepricingSettings?
 
   @@index([status])
 }
 
+/// Belirlenen eşiklerin dışında kalan ürünlerin Trendyol'a gönderilmesini engelleyen kurallar.
+/// Mağaza başına tek kayıt (@@unique storeId); tüm alanlar opsiyonel, null = kısıtlama yok.
+model MarketplacePublishRule {
+  id        String   @id @default(uuid()) @db.Uuid
+  storeId   String   @db.Uuid
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  /// Bu stok sayısının altındaki ürünler gönderilmez (null = kontrol yok)
+  minStock  Int?
+  /// Bu fiyatın altındaki ürünler gönderilmez (null = kontrol yok)
+  minPrice  Float?
+  /// Bu fiyatın üstündeki ürünler gönderilmez (null = kontrol yok)
+  maxPrice  Float?
+
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId])
+}
+
+/// Buybox'a göre otomatik yeniden fiyatlandırma stratejisi (mağaza başına tek kayıt).
+/// Gerçek fiyat değişikliği sadece isActive=true VE ürün bazında
+/// ProductMarketplaceMapping.autoRepriceEnabled=true olan ürünlerde uygulanır (çift opt-in güvenliği).
+model BuyboxRepricingSettings {
+  id               String   @id @default(uuid()) @db.Uuid
+  storeId          String   @db.Uuid
+  store            Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  isActive         Boolean  @default(false)
+
+  /// "undercut_amount" | "undercut_percent" | "match_buybox"
+  strategy         String   @default("undercut_amount")
+  /// strategy=undercut_amount için ₺, undercut_percent için % değeri
+  undercutValue    Float    @default(1)
+  /// Maliyet üzerinden korunacak minimum kâr yüzdesi (opsiyonel güvenlik tabanı) — null ise kontrol yok
+  minMarginPct     Float?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([storeId])
+}
+
+/// Maliyet fiyatı aralığına göre komisyon oranı, kargo bedeli ve hedef kâr oranı tanımı.
+/// Ürün bazlı override (Product.commissionRate/cargoCost/targetProfitRate) varsa o öncelikli;
+/// yoksa maliyet fiyatı bu aralıklardan birine düşüyorsa buradaki değerler kullanılır.
+model PricingTier {
+  id               String   @id @default(uuid()) @db.Uuid
+  storeId          String   @db.Uuid
+  store            Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  /// Görünen isim, örn. "0-100 TL" (opsiyonel, otomatik üretilebilir)
+  label            String?
+  /// Aralığın alt sınırı (dahil), maliyet fiyatına göre
+  minCostPrice     Float
+  /// Aralığın üst sınırı (dahil); null ise "ve üzeri" anlamına gelir
+  maxCostPrice     Float?
+
+  commissionRate   Float
+  cargoCost        Float
+  targetProfitRate Float
+
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([storeId, isActive, minCostPrice])
+}
+
 /// Mağaza başına Trendyol kargo firması referansı (API sync → DB, UI tek kaynak).
-model StoreTrendyolCargoCompany {
+model MarketplaceCarrier {
   id               String    @id @default(uuid()) @db.Uuid
   storeId          String    @db.Uuid
   store            Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  platform         String    @default("trendyol")
-  cargoCompanyId   Int
+  platform         String    @default("TRENDYOL")
+  code             String
   name             String
-  rawData          Json?
   isActive         Boolean   @default(true)
+  metadata         Json?
   lastSyncedAt     DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  @@unique([storeId, platform, cargoCompanyId])
+  @@unique([storeId, platform, code])
   @@index([storeId, platform, isActive])
 }
 
@@ -286,6 +367,12 @@ model XmlFeedSource {
   lastSyncInventoryPushCount Int?
   /// Feed'de artık yoksa ürünü stok 0 + taslak yap
   deactivateMissingFromFeed Boolean @default(false)
+  /// Doluysa, bu feed'den gelen tüm ürülerde XML'deki marka yerine bu sabit marka yazılır.
+  overrideBrandName   String?
+  /// Doluysa, bu feed'den gelen ürünler Trendyol'a yayınırken mağaza varsayılanı yerine
+  /// bu sevkiyat/iade adresi ID'leri kullanılır (örn. farklı depo/tedarikçiden gelen feed).
+  shipmentAddressId   String?
+  returnAddressId     String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -408,6 +495,8 @@ model UserSettings {
   defaultDesi             Float    @default(1)
   fallbackBrand           String?
   fallbackCategory        String?
+  /// XML/içe aktarmadan gelen barkodlara eklenecek ön ek (örn. "MPX-"). Boşsa hiçbir şey eklenmez.
+  xmlBarcodePrefix        String?
 
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
@@ -432,6 +521,8 @@ model Product {
   category       String?
   brand          String?
   sku            String?
+  /// XML feed'inden okunan barkod (mapping oluşturulmadan önce bile eşleşme yapabilmek için)
+  barcode        String?
   status         String   @default("draft")
   lifecycleStatus String  @default("draft")
   mainImageUrl   String?
@@ -444,6 +535,8 @@ model Product {
   sourceImportJobId String? @db.Uuid
   sourceImportRowId String? @db.Uuid
   createdFromImport Boolean @default(false)
+  /// Bu ürün hangi XML feed kaynağından oluşturuldu (XmlFeedSource.id, soft reference)
+  sourceXmlFeedSourceId String? @db.Uuid
 
   // Fiyat önerisi alanları
   costPrice        Float?
@@ -513,6 +606,9 @@ model MarketplaceConnection {
   sellerId           String
   apiKeyEncrypted    String
   apiSecretEncrypted String
+  /// Hepsiburada panel "Servis Anahtarı" (opsiyonel, şifreli).
+  /// Basic Auth rolü henüz teyit edilmedi — bkz. HEPSIBURADA_DOGRULAMA_BEKLEYEN.md
+  serviceKeyEncrypted String?
   userAgent          String
   environment        String    @default("production")
   isActive           Boolean   @default(true)
@@ -757,66 +853,68 @@ model TrendyolOriginCountry {
   updatedAt DateTime @updatedAt
 }
 
-model TrendyolBrand {
+model MarketplaceBrand {
   id           String    @id @default(uuid()) @db.Uuid
-  brandId      Int       @unique
+  storeId      String    @db.Uuid
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform     String
+  externalId   String
   name         String
-  isActive     Boolean?
-  removedAt    DateTime?
-  rawData      Json?
-  lastSyncedAt DateTime?
+  metadata     Json?
+  isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  @@unique([storeId, platform, externalId])
 }
 
-model TrendyolCategory {
-  id               String    @id @default(uuid()) @db.Uuid
-  categoryId       Int       @unique
-  name             String
-  parentCategoryId Int?
-  isLeaf           Boolean   @default(false)
-  isActive         Boolean?
-  removedAt        DateTime?
-  rawData          Json?
-  lastSyncedAt     DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+model MarketplaceCategory {
+  id           String    @id @default(uuid()) @db.Uuid
+  storeId      String    @db.Uuid
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform     String
+  externalId   String
+  name         String
+  parentId     String?
+  metadata     Json?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([storeId, platform, externalId])
 }
 
-model TrendyolCategoryAttribute {
-  id             String    @id @default(uuid()) @db.Uuid
-  categoryId     Int
-  attributeId    Int
-  attributeName  String
-  isRequired     Boolean   @default(false)
-  isVariantable  Boolean   @default(false)
-  allowCustom    Boolean   @default(false)
-  removedAt      DateTime?
-  rawData        Json?
-  lastSyncedAt   DateTime?
+model MarketplaceAttribute {
+  id           String    @id @default(uuid()) @db.Uuid
+  storeId      String    @db.Uuid
+  store        Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  platform     String
+  categoryId   String
+  externalId   String
+  name         String
+  required     Boolean   @default(false)
+  type         String    @default("string")
+  metadata     Json?
+  
+  values       MarketplaceAttributeValue[]
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  values TrendyolCategoryAttributeValue[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([categoryId, attributeId])
+  @@unique([storeId, platform, categoryId, externalId])
 }
 
-model TrendyolCategoryAttributeValue {
-  id                  String   @id @default(uuid()) @db.Uuid
-  categoryAttributeId String   @db.Uuid
-  categoryAttribute   TrendyolCategoryAttribute @relation(fields: [categoryAttributeId], references: [id], onDelete: Cascade)
+model MarketplaceAttributeValue {
+  id           String    @id @default(uuid()) @db.Uuid
+  attributeId  String    @db.Uuid
+  attribute    MarketplaceAttribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  externalId   String
+  name         String
 
-  attributeValueId Int
-  attributeValue   String
-  removedAt        DateTime?
-  rawData          Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([categoryAttributeId, attributeValueId])
+  @@unique([attributeId, externalId])
 }
 
 // Trendyol batch job (create/update) - keyed by batchRequestId
@@ -938,6 +1036,21 @@ model ProductMarketplaceMapping {
   approvalState       ProductMappingApprovalState @default(UNAPPROVED)
   /// V2 onaylı içerik güncelleme (content-bulk-update) için Trendyol contentId
   trendyolContentId   Int?
+  /// Termin süresi (gün) — Trendyol deliveryOption.deliveryDuration
+  deliveryDuration    Int?
+  /// "SAME_DAY_SHIPPING" | "FAST_DELIVERY" — seçilirse deliveryDuration=1 olmalı
+  fastDeliveryType    String?
+  /// Buybox anlık görüntüsü (Trendyol Buybox Kontrol Servisi) — en son kontrolde alınan değerler
+  buyboxOrder         Int?
+  buyboxPrice         Float?
+  hasMultipleSeller   Boolean?
+  secondBuyboxPrice   Float?
+  thirdBuyboxPrice    Float?
+  buyboxCheckedAt     DateTime?
+  /// Bu ürün için buybox'a göre otomatik yeniden fiyatlandırma açık mı (varsayılan: kapalı, opt-in)
+  autoRepriceEnabled  Boolean  @default(false)
+  /// Bu ürüne özel taban fiyat (opsiyonel) — otomatik yeniden fiyatlandırma bu fiyatın altına inmez
+  repriceMinPrice     Float?
   publishedAt         DateTime?
   unpublishedAt       DateTime?
   archivedAt          DateTime?

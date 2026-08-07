@@ -104,20 +104,20 @@ export async function validateSuggestionForMapping(
   }
 
   const categoryId = suggestion.suggestedCategoryId!;
-  const rows = await db.trendyolCategoryAttribute.findMany({
-    where: { categoryId },
+  const rows = await db.marketplaceAttribute.findMany({
+    where: { platform: "TRENDYOL", categoryId: categoryId.toString() },
     select: {
-      attributeId: true,
-      attributeName: true,
-      isRequired: true
+      externalId: true,
+      name: true,
+      required: true
     },
-    orderBy: { attributeName: "asc" }
+    orderBy: { name: "asc" }
   });
 
-  const categoryAttributeDefs: CategoryAttrDef[] = rows.map((r) => ({
-    attributeId: r.attributeId,
-    attributeName: r.attributeName,
-    isRequired: r.isRequired
+  const categoryAttributeDefs: CategoryAttrDef[] = rows.map((r: any) => ({
+    attributeId: parseInt(r.externalId, 10),
+    attributeName: r.name,
+    isRequired: Boolean(r.required)
   }));
 
   const barcode = resolveTrendyolBarcodeForImportRow(row);

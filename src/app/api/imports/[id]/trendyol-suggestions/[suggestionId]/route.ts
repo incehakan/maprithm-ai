@@ -19,24 +19,27 @@ import { isImportUsable } from "@/lib/importStatus";
 
 type Params = { params: { id: string; suggestionId: string } };
 
-type CategoryAttrWithValues = Prisma.TrendyolCategoryAttributeGetPayload<{
+type CategoryAttrWithValues = Prisma.MarketplaceAttributeGetPayload<{
   include: { values: true };
 }>[];
 
 function serializeCategoryAttributes(attrs: CategoryAttrWithValues) {
-  return attrs.map((attr) => ({
-    id: attr.id,
-    categoryId: attr.categoryId,
-    attributeId: attr.attributeId,
-    attributeName: attr.attributeName,
-    isRequired: attr.isRequired,
-    isVariantable: attr.isVariantable,
-    allowCustom: attr.allowCustom,
-    values: attr.values.map((v) => ({
-      attributeValueId: v.attributeValueId,
-      attributeValue: v.attributeValue
-    }))
-  }));
+  return attrs.map((attr) => {
+    const meta = attr.metadata && typeof attr.metadata === "object" ? (attr.metadata as any) : {};
+    return {
+      id: attr.id,
+      categoryId: parseInt(attr.categoryId, 10),
+      attributeId: parseInt(attr.externalId, 10),
+      attributeName: attr.name,
+      isRequired: attr.required,
+      isVariantable: meta.isVariantable || false,
+      allowCustom: meta.allowCustom || false,
+      values: attr.values.map((v: any) => ({
+        attributeValueId: parseInt(v.externalId, 10),
+        attributeValue: v.name
+      }))
+    };
+  });
 }
 
 /**
@@ -104,32 +107,36 @@ export async function GET(request: Request, { params }: Params) {
   /** Marka listesi artık tam çekilmez; combobox /api/trendyol/brands/search ile aranır. */
   const selectedBrandRow =
     suggestion.suggestedBrandId != null
-      ? await prisma.trendyolBrand.findFirst({
-          where: { brandId: suggestion.suggestedBrandId }
+      ? await prisma.marketplaceBrand.findFirst({
+          where: { platform: "TRENDYOL", externalId: suggestion.suggestedBrandId.toString() }
         })
       : null;
   const brands =
     selectedBrandRow != null
-      ? [{ brandId: selectedBrandRow.brandId, name: selectedBrandRow.name }]
+      ? [{ brandId: parseInt(selectedBrandRow.externalId, 10), name: selectedBrandRow.name }]
       : [];
 
   const [categories, categoryAttrRows] = await Promise.all([
-    prisma.trendyolCategory.findMany({
+    prisma.marketplaceCategory.findMany({
       where: {
-        ...trendyolCategoryListableWhere,
-        isLeaf: true
+        platform: "TRENDYOL",
+        isActive: true,
       },
-      select: { categoryId: true, name: true, isLeaf: true },
+      select: { externalId: true, name: true, metadata: true },
       orderBy: { name: "asc" },
       take: 8000
-    }),
+    }).then(cats => cats.map(c => ({
+      categoryId: parseInt(c.externalId, 10),
+      name: c.name,
+      isLeaf: c.metadata && typeof c.metadata === "object" && (c.metadata as any).isLeaf === true
+    })).filter(c => c.isLeaf)),
     effectiveCategoryId != null
-      ? prisma.trendyolCategoryAttribute.findMany({
-          where: { categoryId: effectiveCategoryId },
+      ? prisma.marketplaceAttribute.findMany({
+          where: { platform: "TRENDYOL", categoryId: effectiveCategoryId.toString() },
           include: {
-            values: { orderBy: { attributeValue: "asc" } }
+            values: { orderBy: { name: "asc" } }
           },
-          orderBy: { attributeName: "asc" }
+          orderBy: { name: "asc" }
         })
       : Promise.resolve([] as CategoryAttrWithValues)
   ]);
@@ -307,8 +314,8 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 
   if (suggestedBrandId != null) {
-    const b = await prisma.trendyolBrand.findFirst({
-      where: { brandId: suggestedBrandId, ...trendyolBrandListableWhere }
+    const b = await prisma.marketplaceBrand.findFirst({
+      where: { platform: "TRENDYOL", externalId: suggestedBrandId.toString(), isActive: true }
     });
     if (!b) {
       return NextResponse.json(
@@ -339,14 +346,14 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 
   if (suggestedCategoryId != null) {
-    const c = await prisma.trendyolCategory.findFirst({
+    const c = await prisma.marketplaceCategory.findFirst({
       where: {
-        categoryId: suggestedCategoryId,
-        ...trendyolCategoryListableWhere,
-        isLeaf: true
+        platform: "TRENDYOL",
+        externalId: suggestedCategoryId.toString(),
+        isActive: true
       }
     });
-    if (!c) {
+    if (!c || !(c.metadata && typeof c.metadata === "object" && (c.metadata as any).isLeaf === true)) {
       return NextResponse.json(
         { error: "Kategori bulunamadı veya yaprak kategori değil." },
         { status: 400 }

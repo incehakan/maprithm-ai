@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { ProductTrendyolMappingSection } from "./ProductTrendyolMappingSection";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type Product = {
   id: string;
@@ -74,6 +75,16 @@ type DefaultSettings = {
   targetProfitRate: number | null;
 };
 
+type TierSuggestionField = { value: number | null; source: "product_override" | "tier" | "store_default" | null };
+
+type TierSuggestion = {
+  costPrice: number | null;
+  commissionRate: TierSuggestionField;
+  cargoCost: TierSuggestionField;
+  targetProfitRate: TierSuggestionField;
+  matchedTier: { id: string; label: string } | null;
+};
+
 type Props = {
   product: Product;
   activityLogs: ActivityLog[];
@@ -134,6 +145,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
   const [savingPricing, setSavingPricing] = useState(false);
   const [applyingPrice, setApplyingPrice] = useState(false);
   const [pricingResult, setPricingResult] = useState<PricingResult | null>(null);
+  const [tierSuggestion, setTierSuggestion] = useState<TierSuggestion | null>(null);
   const [savingImages, setSavingImages] = useState(false);
   const [mainImageUrl, setMainImageUrl] = useState(product.mainImageUrl ?? "");
   const [imageUrlsText, setImageUrlsText] = useState(
@@ -141,6 +153,37 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
       ? product.imageUrls.filter((x) => typeof x === "string").join("\n")
       : ""
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTierSuggestion() {
+      try {
+        const res = await fetch(`/api/products/${product.id}/pricing-tier-suggestion`);
+        if (!res.ok) return;
+        const data: TierSuggestion = await res.json();
+        if (cancelled) return;
+        setTierSuggestion(data);
+
+        // Ürün bazında kaydedilmiş kendi değeri yoksa, aralık/varsayılan önerisini alana doldur.
+        if (product.commissionRate == null && data.commissionRate.value != null) {
+          setCommissionRate(String(data.commissionRate.value));
+        }
+        if (product.cargoCost == null && data.cargoCost.value != null) {
+          setCargoCost(String(data.cargoCost.value));
+        }
+        if (product.targetProfitRate == null && data.targetProfitRate.value != null) {
+          setTargetProfitRate(String(data.targetProfitRate.value));
+        }
+      } catch {
+        // sessizce yut; kullanıcı yine de manuel değer girebilir
+      }
+    }
+    loadTierSuggestion();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.id]);
 
   async function handleDelete() {
     if (!confirm("Bu ürünü arşivlemek istediğinizden emin misiniz?")) return;
@@ -155,7 +198,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Arşivleme başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Arşivleme başarısız."));
       }
 
       router.push("/products");
@@ -185,7 +228,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "AI optimizasyonu başarısız.");
+        throw new Error(extractApiErrorMessage(data, "AI optimizasyonu başarısız."));
       }
 
       setOptimized(data.optimized);
@@ -220,7 +263,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "Uygulama başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Uygulama başarısız."));
       }
 
       setMessage({
@@ -275,7 +318,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "Fiyat hesaplama başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Fiyat hesaplama başarısız."));
       }
 
       setPricingResult(data);
@@ -327,7 +370,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Fiyat güncellenemedi.");
+        throw new Error(extractApiErrorMessage(data, "Fiyat güncellenemedi."));
       }
 
       setMessage({
@@ -351,7 +394,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
     try {
       const imageUrls = imageUrlsText
         .split(/\r?\n/)
-        .map((x) => x.trim())
+        .map((u) => u.trim())
         .filter(Boolean);
       const res = await fetch(`/api/products/${product.id}`, {
         method: "PATCH",
@@ -374,7 +417,7 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Görseller kaydedilemedi.");
+        throw new Error(extractApiErrorMessage(data, "Görseller kaydedilemedi."));
       }
       setMessage({ type: "success", text: "Görseller kaydedildi." });
       router.refresh();
@@ -706,6 +749,25 @@ export function ProductDetailClient({ product, activityLogs, defaultSettings }: 
               etkilenmez. Komisyon, kargo ve kâr oranlarını ayarlayıp önerilen satış fiyatını
               hesaplayın.
             </p>
+
+            {tierSuggestion?.matchedTier && (
+              <div className="rounded-lg border border-indigo-800/50 bg-indigo-950/30 px-3 py-2 text-xs text-indigo-200">
+                Bu ürünün maliyeti, <strong>{tierSuggestion.matchedTier.label}</strong> aralığına giriyor —
+                komisyon/kargo/kâr oranları bu aralıktan otomatik dolduruldu. Aşağıdan değiştirip
+                kendi ürününüze özel bir değer olarak kaydedebilirsiniz.
+              </div>
+            )}
+            {tierSuggestion && !tierSuggestion.matchedTier && tierSuggestion.commissionRate.source === "store_default" && (
+              <div className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+                Bu maliyet için tanımlı bir fiyat aralığı yok; mağaza varsayılan oranları kullanıldı.
+                Ayarlar → Kademeli Fiyatlandırma'dan aralık ekleyebilirsiniz.
+              </div>
+            )}
+            {tierSuggestion?.commissionRate.source === "product_override" && (
+              <div className="rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-3 py-2 text-xs text-emerald-300">
+                Bu ürün için özel olarak kaydedilmiş oranlar kullanılıyor (aralık ayarlarından bağımsız).
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>

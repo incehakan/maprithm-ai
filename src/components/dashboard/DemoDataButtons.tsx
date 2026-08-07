@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type DemoDataButtonsProps = {
   hasDemoProducts: boolean;
@@ -30,7 +31,7 @@ export function DemoDataButtons({ hasDemoProducts, demoProductCount }: DemoDataB
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Demo verileri yüklenemedi");
+        throw new Error(extractApiErrorMessage(data, "Demo verileri yüklenemedi"));
       }
 
       setMessage({ type: "success", text: data.message });
@@ -65,7 +66,7 @@ export function DemoDataButtons({ hasDemoProducts, demoProductCount }: DemoDataB
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Demo verileri silinemedi");
+        throw new Error(extractApiErrorMessage(data, "Demo verileri silinemedi"));
       }
 
       setMessage({ type: "success", text: data.message });

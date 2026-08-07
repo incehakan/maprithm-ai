@@ -76,16 +76,16 @@ export async function matchBrandFallback(
     };
   }
 
-  const rows = await db.trendyolBrand.findMany({
+  const rows = await db.marketplaceBrand.findMany({
     where: {
       AND: [
-        trendyolBrandListableWhere,
+        { platform: "TRENDYOL", isActive: true },
         { OR: tokens.map((t) => ({ name: { contains: t, mode: "insensitive" } })) }
       ]
     },
-    select: { brandId: true, name: true },
+    select: { externalId: true, name: true },
     take: 120
-  });
+  }).then(list => list.map(b => ({ brandId: parseInt(b.externalId, 10), name: b.name })));
 
   if (rows.length === 0) {
     return {
@@ -184,16 +184,20 @@ export async function matchCategoryFallback(
       ) === i
   );
 
-  const rows = await db.trendyolCategory.findMany({
+  const rows = await db.marketplaceCategory.findMany({
     where: {
       AND: [
-        trendyolCategoryListableWhere,
+        { platform: "TRENDYOL", isActive: true },
         { OR: uniqueOr.slice(0, 25) }
       ]
     },
-    select: { categoryId: true, name: true, isLeaf: true },
+    select: { externalId: true, name: true, metadata: true },
     take: 200
-  });
+  }).then(list => list.map(c => ({
+    categoryId: parseInt(c.externalId, 10),
+    name: c.name,
+    isLeaf: c.metadata && typeof c.metadata === "object" && (c.metadata as any).isLeaf === true
+  })).filter(c => c.isLeaf));
 
   if (rows.length === 0) {
     return {
@@ -219,7 +223,7 @@ export async function matchCategoryFallback(
       byId.set(r.categoryId, {
         categoryId: r.categoryId,
         name: r.name,
-        isLeaf: r.isLeaf,
+        isLeaf: Boolean(r.isLeaf),
         score
       });
     }

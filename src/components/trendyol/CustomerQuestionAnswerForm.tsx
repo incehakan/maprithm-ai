@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 export function CustomerQuestionAnswerForm({
   questionId,
@@ -44,12 +45,9 @@ export function CustomerQuestionAnswerForm({
           body: JSON.stringify({ text: trimmed })
         }
       );
-      const j = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
-        error?: string;
-      };
-      if (!res.ok || !j.success) {
-        setError(j.error ?? "Gönderim başarısız.");
+      const j = (await res.json().catch(() => ({}))) as unknown;
+      if (!res.ok || !(j as { success?: boolean })?.success) {
+        setError(extractApiErrorMessage(j, "Gönderim başarısız."));
         return;
       }
       setOk("Cevap Trendyol'a iletildi (yayın öncesi değerlendirmede).");

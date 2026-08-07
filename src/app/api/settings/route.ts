@@ -56,7 +56,8 @@ export async function GET() {
           defaultTargetProfitRate: null,
           defaultDesi: 1,
           fallbackBrand: "",
-          fallbackCategory: ""
+          fallbackCategory: "",
+          xmlBarcodePrefix: ""
         }
       });
     }
@@ -71,7 +72,8 @@ export async function GET() {
         defaultTargetProfitRate: settings.defaultTargetProfitRate,
         defaultDesi: settings.defaultDesi ?? 1,
         fallbackBrand: settings.fallbackBrand ?? "",
-        fallbackCategory: settings.fallbackCategory ?? ""
+        fallbackCategory: settings.fallbackCategory ?? "",
+        xmlBarcodePrefix: settings.xmlBarcodePrefix ?? ""
       }
     });
   } catch (error) {
@@ -108,7 +110,8 @@ export async function POST(request: Request) {
       defaultTargetProfitRate,
       defaultDesi,
       fallbackBrand,
-      fallbackCategory
+      fallbackCategory,
+      xmlBarcodePrefix
     } = body;
 
     const anyPrisma = prisma as any;
@@ -131,7 +134,11 @@ export async function POST(request: Request) {
       defaultTargetProfitRate: toFiniteFloatOrNull(defaultTargetProfitRate),
       defaultDesi: toFiniteFloat(defaultDesi, 1),
       fallbackBrand: fallbackBrand || null,
-      fallbackCategory: fallbackCategory || null
+      fallbackCategory: fallbackCategory || null,
+      xmlBarcodePrefix:
+        typeof xmlBarcodePrefix === "string" && xmlBarcodePrefix.trim()
+          ? xmlBarcodePrefix.trim().slice(0, 20)
+          : null
     };
 
     await anyPrisma.userSettings.upsert({

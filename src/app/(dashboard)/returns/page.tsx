@@ -109,6 +109,7 @@ export default async function ReturnsPage({ searchParams }: { searchParams: Sear
     select: {
       id: true,
       claimId: true,
+      platform: true,
       orderNumber: true,
       shipmentPackageId: true,
       claimStatus: true,
@@ -127,7 +128,7 @@ export default async function ReturnsPage({ searchParams }: { searchParams: Sear
     <>
       <PageHeader
         title="İadeler"
-        subtitle="Trendyol iade talepleri (claim) — mağaza kapsamında."
+        subtitle="Trendyol ve Hepsiburada iade talepleri — mağaza kapsamında."
         actions={
           <div className="flex items-center gap-3">
             {canManage && <ReturnsSyncButton />}
@@ -196,7 +197,7 @@ export default async function ReturnsPage({ searchParams }: { searchParams: Sear
           title="Kayıt yok"
           description={
             canManage
-              ? "Senkron ile Trendyol iadelerini çekin veya filtreleri gevşetin."
+              ? "Senkron ile Trendyol/Hepsiburada iadelerini çekin veya filtreleri gevşetin."
               : "Henüz iade kaydı yok veya filtrelere uyan sonuç yok."
           }
         />
@@ -204,6 +205,7 @@ export default async function ReturnsPage({ searchParams }: { searchParams: Sear
         <PremiumTable>
           <thead>
             <tr>
+              <th className="text-left">Platform</th>
               <th className="text-left">Claim</th>
               <th className="text-left">Sipariş</th>
               <th className="text-left">Paket</th>
@@ -219,8 +221,13 @@ export default async function ReturnsPage({ searchParams }: { searchParams: Sear
           <tbody>
             {rows.map((r) => {
               const name = [r.customerFirstName, r.customerLastName].filter(Boolean).join(" ");
+              const platformLabel = r.platform === "hepsiburada" ? "HB" : "TY";
+              const platformClass = r.platform === "hepsiburada"
+                ? "rounded px-1.5 py-0.5 text-[10px] font-bold bg-orange-500/20 text-orange-300"
+                : "rounded px-1.5 py-0.5 text-[10px] font-bold bg-sky-500/20 text-sky-300";
               return (
                 <tr key={r.id}>
+                  <td><span className={platformClass}>{platformLabel}</span></td>
                   <td className="font-mono text-xs text-slate-300">{r.claimId}</td>
                   <td className="text-slate-200">{r.orderNumber ?? "—"}</td>
                   <td className="font-mono text-xs text-slate-400">{r.shipmentPackageId ?? "—"}</td>

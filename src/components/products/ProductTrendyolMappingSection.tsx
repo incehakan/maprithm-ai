@@ -6,10 +6,12 @@ import { useRouter } from "next/navigation";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { TrendyolBrandSearchSelect } from "@/components/trendyol/TrendyolBrandSearchSelect";
 import { ProductMarketplaceSyncChip } from "@/components/products/ProductMarketplaceSyncChip";
+import { TrendyolPublishPreviewModal } from "@/components/products/TrendyolPublishPreviewModal";
 import {
   formatTrDate,
   marketplaceSyncHeadline
 } from "@/lib/xml-sync/productSyncUi";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 import {
   resolveUserErrorMessage,
   userMessageForCode
@@ -65,6 +67,8 @@ type MappingPayload = {
   lastPublishBatchId?: string | null;
   mainImageUrl: string | null;
   imageUrls?: unknown;
+  deliveryDuration?: number | null;
+  fastDeliveryType?: string | null;
   attributes?: MappingAttr[];
 };
 
@@ -303,6 +307,11 @@ export function ProductTrendyolMappingSection({
     Record<number, { valueId: number | null; custom: string }>
   >({});
   const [productOrigin, setProductOrigin] = useState<string | null>(null);
+  const [deliveryDuration, setDeliveryDuration] = useState("");
+  const [fastDeliveryType, setFastDeliveryType] = useState<string>("");
+  const [autoRepriceEnabled, setAutoRepriceEnabled] = useState(false);
+  const [repriceMinPrice, setRepriceMinPrice] = useState("");
+  const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
   const [originFieldEnabled, setOriginFieldEnabled] = useState(false);
   const [categoryRequiresOriginFlag, setCategoryRequiresOriginFlag] =
     useState(false);
@@ -322,7 +331,7 @@ export function ProductTrendyolMappingSection({
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data?.error || "Veri yüklenemedi.");
+        throw new Error(extractApiErrorMessage(data, "Veri yüklenemedi."));
       }
 
       if (data.defaults && !data.mapping && !isPreview) {
@@ -351,6 +360,10 @@ export function ProductTrendyolMappingSection({
             ? d.imageUrls.filter((x: unknown) => typeof x === "string").join("\n")
             : ""
         );
+        setDeliveryDuration(d.deliveryDuration != null ? String(d.deliveryDuration) : "");
+        setFastDeliveryType(d.fastDeliveryType ?? "");
+        setAutoRepriceEnabled(Boolean(d.autoRepriceEnabled));
+        setRepriceMinPrice(d.repriceMinPrice != null ? String(d.repriceMinPrice) : "");
         setBatchRequestId(null);
         setMappingPublishedAt(null);
         setLastErrorMessage(null);
@@ -388,6 +401,10 @@ export function ProductTrendyolMappingSection({
             ? m.imageUrls.filter((x: unknown) => typeof x === "string").join("\n")
             : ""
         );
+        setDeliveryDuration(m.deliveryDuration != null ? String(m.deliveryDuration) : "");
+        setFastDeliveryType(m.fastDeliveryType ?? "");
+        setAutoRepriceEnabled(Boolean((m as any).autoRepriceEnabled));
+        setRepriceMinPrice((m as any).repriceMinPrice != null ? String((m as any).repriceMinPrice) : "");
         setBatchRequestId(m.batchRequestId ?? null);
         setMappingPublishedAt(m.publishedAt ?? null);
         setLastErrorMessage(m.lastErrorMessage ?? null);
@@ -557,9 +574,13 @@ export function ProductTrendyolMappingSection({
         mainImageUrl: mainImageUrl.trim() || null,
         imageUrls: imageUrlsText
           .split(/\r?\n/)
-          .map((x) => x.trim())
+          .map((u) => u.trim())
           .filter(Boolean),
         attributes: attrs,
+        deliveryDuration: deliveryDuration.trim() ? parseInt(deliveryDuration, 10) : null,
+        fastDeliveryType: fastDeliveryType || null,
+        autoRepriceEnabled,
+        repriceMinPrice: repriceMinPrice.trim() ? parseFloat(repriceMinPrice) : null,
         ...(originFieldEnabled ? { origin: productOrigin } : {})
       };
 
@@ -570,7 +591,7 @@ export function ProductTrendyolMappingSection({
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || "Kayıt başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Kayıt başarısız."));
       }
       await load(trendyolCategoryId);
       router.refresh();
@@ -691,7 +712,7 @@ export function ProductTrendyolMappingSection({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data?.error || "Yayından kaldırma başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Yayından kaldırma başarısız."));
       }
       setPublishFlash({ type: "ok", text: "Ürün arşive alındı." });
       setPublishStatus("archived");
@@ -722,7 +743,7 @@ export function ProductTrendyolMappingSection({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data?.error || "Arşiv işlemi başarısız.");
+        throw new Error(extractApiErrorMessage(data, "Arşiv işlemi başarısız."));
       }
       setPublishFlash({
         type: "ok",
@@ -875,6 +896,57 @@ export function ProductTrendyolMappingSection({
       status !== "processing"
     );
   }, [publishStatus, barcode]);
+
+  const previewCategoryName = useMemo(() => {
+    const c = categories.find((x) => x.categoryId === trendyolCategoryId);
+    return c ? `${c.name} (${c.categoryId})` : "—";
+  }, [categories, trendyolCategoryId]);
+
+  const previewCargoLabel = useMemo(() => {
+    const c = cargoCompanyOptions.find((x) => x.id === cargoCompanyId);
+    return c?.label ?? "—";
+  }, [cargoCompanyOptions, cargoCompanyId]);
+
+  const previewImagesList = useMemo(
+    () =>
+      imageUrlsText
+        .split(/\r?\n/)
+        .map((x) => x.trim())
+        .filter(Boolean),
+    [imageUrlsText]
+  );
+
+  const previewFields = useMemo(
+    () => [
+      { label: "Marka", value: pickedBrandName ?? "—" },
+      { label: "Kategori", value: previewCategoryName },
+      { label: "Barkod", value: barcode || "—" },
+      {
+        label: "Satış Fiyatı",
+        value: salePriceInputValue ? `₺${salePriceInputValue}` : "—"
+      },
+      {
+        label: "Stok",
+        value: quantityInputValue ? `${quantityInputValue} adet` : "—"
+      },
+      { label: "KDV Oranı", value: vatRate ? `%${vatRate}` : "—" },
+      { label: "Kargo Firması", value: previewCargoLabel },
+      {
+        label: "Termin Süresi",
+        value: deliveryDuration ? `${deliveryDuration} gün` : "—"
+      }
+    ],
+    [
+      pickedBrandName,
+      previewCategoryName,
+      barcode,
+      salePriceInputValue,
+      quantityInputValue,
+      vatRate,
+      previewCargoLabel,
+      deliveryDuration
+    ]
+  );
 
   async function handleTrendyolContentUpdate() {
     if (
@@ -1093,7 +1165,7 @@ export function ProductTrendyolMappingSection({
             <PermissionGate permission="marketplace.publish">
               <button
                 type="button"
-                onClick={handleTrendyolPublish}
+                onClick={() => setPublishPreviewOpen(true)}
                 disabled={publishing || !publishGateReady}
                 hidden={publishStatus === "archived"}
                 className="btn-primary shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1473,6 +1545,66 @@ export function ProductTrendyolMappingSection({
             />
           </div>
           <div>
+            <label className="label">Termin Süresi (gün)</label>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              className="input"
+              value={deliveryDuration}
+              onChange={(e) => setDeliveryDuration(e.target.value)}
+              placeholder="Örn. 2"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Boş bırakılırsa Trendyol'a gönderilmez (Trendyol varsayılanını kullanır).
+            </p>
+          </div>
+          <div>
+            <label className="label">Hızlı Teslimat Türü</label>
+            <select
+              className="input"
+              value={fastDeliveryType}
+              onChange={(e) => setFastDeliveryType(e.target.value)}
+              disabled={deliveryDuration.trim() !== "1"}
+            >
+              <option value="">— Yok —</option>
+              <option value="SAME_DAY_SHIPPING">Aynı Gün Kargoda (SAME_DAY_SHIPPING)</option>
+              <option value="FAST_DELIVERY">Hızlı Teslimat (FAST_DELIVERY)</option>
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Seçilebilmesi için Termin Süresi tam olarak 1 olmalı (Trendyol kuralı).
+            </p>
+          </div>
+          <div className="md:col-span-2 rounded-lg border border-amber-800/40 bg-amber-950/10 p-3">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={autoRepriceEnabled}
+                onChange={(e) => setAutoRepriceEnabled(e.target.checked)}
+                className="rounded border-slate-600 bg-slate-800"
+              />
+              Buybox otomatik yeniden fiyatlandırmayı bu ürün için takip et
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              Ayarlar → Kademeli Fiyatlandırma'daki genel anahtar da açık olmalı (çift güvenlik).
+              Açıkken, buybox'ı kaybederseniz fiyat otomatik düşürülebilir.
+            </p>
+            {autoRepriceEnabled && (
+              <div className="mt-2 max-w-xs">
+                <label className="label text-xs">Bu ürün için taban fiyat (₺, opsiyonel)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="input"
+                  placeholder="Otomatik fiyat bu değerin altına inmesin"
+                  value={repriceMinPrice}
+                  onChange={(e) => setRepriceMinPrice(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+          <div>
             <label className="label">Kargo firması</label>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
               <select
@@ -1796,6 +1928,19 @@ export function ProductTrendyolMappingSection({
           </p>
         )}
       </div>
+
+      <TrendyolPublishPreviewModal
+        open={publishPreviewOpen}
+        mainImageUrl={mainImageUrl || null}
+        imageUrls={previewImagesList}
+        fields={previewFields}
+        confirming={publishing}
+        onCancel={() => setPublishPreviewOpen(false)}
+        onConfirm={async () => {
+          setPublishPreviewOpen(false);
+          await handleTrendyolPublish();
+        }}
+      />
     </div>
   );
 }

@@ -1,0 +1,52 @@
+import { NextResponse } from "next/server";
+import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import { getHbCommissions } from "@/lib/hepsiburadaListings";
+import { jsonError, createErrorResponse } from "@/lib/errors/errorResponse";
+
+/**
+ * GET /api/integrations/hepsiburada/commissions?skus=A,B
+ * Maks. 50 SKU. Response şeması unknown.
+ */
+export async function GET(request: Request) {
+  let ctx;
+  try {
+    ctx = await requireActiveStore();
+  } catch (e: unknown) {
+    const noStore = e instanceof Error && e.message === "NO_ACTIVE_STORE";
+    return noStore
+      ? jsonError("NO_ACTIVE_STORE", { httpStatus: 401 })
+      : jsonError("UNAUTHORIZED", { httpStatus: 401 });
+  }
+
+  try {
+    requirePermission(ctx, "marketplace.integrations.manage");
+  } catch {
+    return jsonError("FORBIDDEN", { httpStatus: 403 });
+  }
+
+  try {
+    const url = new URL(request.url);
+    const skusParam = url.searchParams.get("skus")?.trim() ?? "";
+    const skus = skusParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const result = await getHbCommissions(ctx.storeId, skus);
+    if (!result.ok) {
+      const isRateLimit =
+        result.status === 429 || /rate limit/i.test(result.message);
+      return jsonError("INTERNAL_ERROR", {
+        userMessage: result.message,
+        httpStatus: result.status === 400 ? 400 : isRateLimit ? 429 : 502,
+      });
+    }
+
+    return NextResponse.json({ success: true, data: result.data });
+  } catch (error) {
+    console.error("Hepsiburada commissions GET error:", error);
+    return createErrorResponse(error, {
+      route: "GET /api/integrations/hepsiburada/commissions",
+    });
+  }
+}

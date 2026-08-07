@@ -352,9 +352,12 @@ export async function syncTrendyolBatchResultForUser(
           ...(lastSuccessfulPublishAt ? { lastSuccessfulPublishAt } : {}),
           ...(newStatus === "archived" ? { archivedAt: syncNow } : {}),
           ...(newStatus === "published" ? { archivedAt: null, unpublishedAt: null } : {}),
-          ...(newStatus === "published" && !isPriceStockBatch
-            ? { publishedAt: syncNow, approvalState: "APPROVED" }
-            : {})
+          ...(newStatus === "published" && !isPriceStockBatch ? { publishedAt: syncNow } : {})
+          // NOT: approvalState burada "APPROVED" olarak ayarlanmıyor — publish/onboarding
+          // batch'inin SUCCESS dönmesi, Trendyol'un içerik onayını verdiği anlamına gelmez.
+          // Gerçek onay durumu getProductBase (approved:true/false) veya katalog eşleştirme
+          // aracıyla belirlenir; buradan APPROVED yazmak, henüz onaylanmamış ürünlerin
+          // yanlış API yoluna (onaylı içerik güncelleme) yönlendirilmesine sebep oluyordu.
         }
       });
 

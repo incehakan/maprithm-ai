@@ -9,14 +9,23 @@ export function compactBarcodeFromImportRowId(rowId: string): string {
 
 /**
  * Barkod: normalizedBarcode → normalizedSku → satır id fallback
+ * `prefix` verilirse yalnızca XML/feed'den gelen gerçek barkoda (normalizedBarcode) eklenir;
+ * SKU veya otomatik üretilen fallback barkodlara eklenmez (onlar zaten kendi önekleriyle ayırt edilebilir).
  */
-export function resolveTrendyolBarcodeForImportRow(row: {
-  id: string;
-  normalizedBarcode: string | null;
-  normalizedSku: string | null;
-}): string {
+export function resolveTrendyolBarcodeForImportRow(
+  row: {
+    id: string;
+    normalizedBarcode: string | null;
+    normalizedSku: string | null;
+  },
+  prefix?: string | null
+): string {
   const b = row.normalizedBarcode?.trim();
-  if (b) return b.slice(0, 64);
+  if (b) {
+    const p = prefix?.trim();
+    const withPrefix = p && !b.startsWith(p) ? `${p}${b}` : b;
+    return withPrefix.slice(0, 64);
+  }
   const s = row.normalizedSku?.trim();
   if (s) return s.slice(0, 64);
   return compactBarcodeFromImportRowId(row.id);

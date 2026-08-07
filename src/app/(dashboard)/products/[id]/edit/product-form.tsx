@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type ProductFormData = {
   id: string;
@@ -88,7 +89,7 @@ export default function EditProductForm({ product }: { product: ProductFormData 
 
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(data?.error || "Ürün güncellenemedi.");
+        throw new Error(extractApiErrorMessage(data, "Ürün güncellenemedi."));
       }
 
       router.push("/products");
@@ -116,7 +117,7 @@ export default function EditProductForm({ product }: { product: ProductFormData 
 
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error(data?.error || "Ürün silinemedi.");
+        throw new Error(extractApiErrorMessage(data, "Ürün silinemedi."));
       }
 
       router.push("/products");
@@ -160,7 +161,7 @@ export default function EditProductForm({ product }: { product: ProductFormData 
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="category">
               Kategori
@@ -185,7 +186,7 @@ export default function EditProductForm({ product }: { product: ProductFormData 
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="sku">
               SKU
@@ -261,7 +262,7 @@ export default function EditProductForm({ product }: { product: ProductFormData 
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="label" htmlFor="price">
               Fiyat (₺)

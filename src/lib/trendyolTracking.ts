@@ -84,7 +84,10 @@ const PROVIDER_LINK_BUILDERS: Array<{
 }> = [
   {
     test: (c, n) =>
-      /aras/i.test(n ?? "") || /aras/i.test(c ?? "") || (c ?? "").toUpperCase() === "ARAS",
+      /aras/i.test(n ?? "") ||
+      /aras/i.test(c ?? "") ||
+      (c ?? "").toUpperCase() === "ARAS" ||
+      (c ?? "").toUpperCase() === "ARASMP",
     build: (t) =>
       `https://kargotakip.araskargo.com.tr/main.aspx?q=${encodeURIComponent(t)}`
   },
@@ -92,7 +95,8 @@ const PROVIDER_LINK_BUILDERS: Array<{
     test: (c, n) =>
       /yurtiçi|yurtici/i.test(n ?? "") ||
       /YK$/i.test(c ?? "") ||
-      (c ?? "").toUpperCase() === "YK",
+      (c ?? "").toUpperCase() === "YK" ||
+      (c ?? "").toUpperCase() === "YKMP",
     build: (t) =>
       `https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=${encodeURIComponent(t)}`
   },
@@ -101,21 +105,55 @@ const PROVIDER_LINK_BUILDERS: Array<{
     build: (t) => `https://www.mngkargo.com.tr/track?query=${encodeURIComponent(t)}`
   },
   {
-    test: (c, n) => /ptt/i.test(n ?? "") || /ptt/i.test(c ?? ""),
+    test: (c, n) =>
+      /ptt/i.test(n ?? "") ||
+      /ptt/i.test(c ?? "") ||
+      (c ?? "").toUpperCase() === "PTTMP",
     build: (t) =>
       `https://gonderitakip.ptt.gov.tr/Track/Verify?q=${encodeURIComponent(t)}`
   },
   {
-    test: (c, n) => /ups/i.test(n ?? "") || /ups/i.test(c ?? ""),
+    test: (c, n) =>
+      /ups/i.test(n ?? "") ||
+      /ups/i.test(c ?? "") ||
+      (c ?? "").toUpperCase() === "UPSMP",
     build: (t) => `https://www.ups.com/track?tracknum=${encodeURIComponent(t)}`
   },
   {
-    test: (c, n) => /surat|sürat/i.test(n ?? "") || /surat/i.test(c ?? ""),
-    build: (t) => `https://www.suratkargo.com.tr/KargoTakip/?kargotakipno=${encodeURIComponent(t)}`
+    test: (c, n) =>
+      /surat|sürat/i.test(n ?? "") ||
+      /surat/i.test(c ?? "") ||
+      (c ?? "").toUpperCase() === "SURATMP",
+    build: (t) =>
+      `https://www.suratkargo.com.tr/KargoTakip/?kargotakipno=${encodeURIComponent(t)}`
   },
   {
-    test: (c, n) => /trendyol\s*express|ty\s*express|sentigo/i.test(n ?? ""),
-    build: (t) => `https://www.trendyol.com/siparislerim?tracking=${encodeURIComponent(t)}`
+    test: (c, n) =>
+      /trendyol\s*express|ty\s*express|sentigo/i.test(n ?? "") ||
+      (c ?? "").toUpperCase() === "TEXMP",
+    build: (t) =>
+      `https://www.trendyol.com/siparislerim?tracking=${encodeURIComponent(t)}`
+  },
+  {
+    test: (c, n) =>
+      /ceva/i.test(n ?? "") ||
+      /ceva/i.test(c ?? "") ||
+      (c ?? "").toUpperCase() === "CEVAMP" ||
+      (c ?? "").toUpperCase() === "CEVATEDARIK",
+    build: (t) => `https://www.cevalojistik.com.tr/track?code=${encodeURIComponent(t)}`
+  },
+  {
+    test: (c, n) =>
+      /horoz/i.test(n ?? "") ||
+      /horoz/i.test(c ?? "") ||
+      (c ?? "").toUpperCase() === "HOROZMP",
+    build: (t) => `https://www.horoz.com.tr/kargotakip?q=${encodeURIComponent(t)}`
+  },
+  {
+    test: (c, n) =>
+      /kolay\s*gelsin/i.test(n ?? "") || (c ?? "").toUpperCase() === "KOLAYGELSINMP",
+    build: (t) =>
+      `https://www.kolaygelsin.com/gonderi-takip?code=${encodeURIComponent(t)}`
   }
 ];
 
@@ -151,13 +189,24 @@ export function resolveCargoProviderDisplay(
   const upper = code.toUpperCase();
   const codeMap: Record<string, string> = {
     ARAS: "Aras Kargo",
+    ARASMP: "Aras Kargo (MP)",
     YK: "Yurtiçi Kargo",
+    YKMP: "Yurtiçi Kargo (MP)",
     MNG: "MNG Kargo",
     PTT: "PTT Kargo",
+    PTTMP: "PTT Kargo (MP)",
     UPS: "UPS",
-    SURAT: "Sürat Kargo"
+    UPSMP: "UPS (MP)",
+    SURAT: "Sürat Kargo",
+    SURATMP: "Sürat Kargo (MP)",
+    TEXMP: "Trendyol Express (MP)",
+    HOROZMP: "Horoz (MP)",
+    CEVAMP: "CEVA (MP)",
+    CEVATEDARIK: "CEVA Tedarik",
+    DHLECOMMP: "DHL eCommerce (MP)",
+    KOLAYGELSINMP: "Kolay Gelsin (MP)"
   };
-  return codeMap[upper] ?? "Bilinmeyen Kargo Firması";
+  return codeMap[upper] ?? code;
 }
 
 /**
@@ -172,11 +221,12 @@ export function normalizeTrackingData(raw: Record<string, unknown>): NormalizedT
     "trackingUrl",
     "shipmentTrackingUrl"
   ]);
+  // NOT: cargoSenderNumber takip/gönderen no — providerCode değildir.
   const cargoProviderCode = pickString(raw, [
     "cargoProviderCode",
     "logisticsProviderCode",
     "cargoCompanyCode",
-    "cargoSenderNumber"
+    "cargoCompanyId"
   ]);
   const cargoProviderName = normalizeCargoProvider(raw);
   const cargoStatusText = pickString(raw, [

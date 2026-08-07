@@ -65,6 +65,9 @@ export async function POST(request: Request) {
         isActive?: boolean;
         syncIntervalMinutes?: number;
         deactivateMissingFromFeed?: boolean;
+        overrideBrandName?: string | null;
+        shipmentAddressId?: string | null;
+        returnAddressId?: string | null;
       }
     | null;
 
@@ -76,6 +79,18 @@ export async function POST(request: Request) {
   );
   const isActive = body?.isActive !== false;
   const deactivateMissingFromFeed = body?.deactivateMissingFromFeed === true;
+  const overrideBrandName =
+    typeof body?.overrideBrandName === "string" && body.overrideBrandName.trim()
+      ? body.overrideBrandName.trim().slice(0, 100)
+      : null;
+  const shipmentAddressId =
+    typeof body?.shipmentAddressId === "string" && body.shipmentAddressId.trim()
+      ? body.shipmentAddressId.trim()
+      : null;
+  const returnAddressId =
+    typeof body?.returnAddressId === "string" && body.returnAddressId.trim()
+      ? body.returnAddressId.trim()
+      : null;
 
   if (!name || !feedUrl) {
     return NextResponse.json(
@@ -116,7 +131,10 @@ export async function POST(request: Request) {
         feedUrl,
         isActive,
         syncIntervalMinutes,
-        deactivateMissingFromFeed
+        deactivateMissingFromFeed,
+        overrideBrandName,
+        shipmentAddressId,
+        returnAddressId
       }
     });
 

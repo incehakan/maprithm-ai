@@ -35,6 +35,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
   const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  const [bulkPublishing, setBulkPublishing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingTrendyol, setExportingTrendyol] = useState(false);
   const [message, setMessage] = useState<{
@@ -114,6 +115,70 @@ export function ProductsTable({ products }: ProductsTableProps) {
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleBulkPublish() {
+    if (selectedIds.size === 0) {
+      setMessage({ type: "info", text: "Lütfen en az bir ürün seçin." });
+      return;
+    }
+
+    if (
+      !confirm(
+        `${selectedIds.size} ürün Trendyol'a gönderilecek. Devam edilsin mi?`
+      )
+    ) {
+      return;
+    }
+
+    setBulkPublishing(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/products/bulk-publish-trendyol", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productIds: Array.from(selectedIds) })
+      });
+
+      const data = (await res.json().catch(() => null)) as
+        | OptimizeResponse
+        | Record<string, unknown>;
+
+      if (!res.ok) {
+        setMessage({
+          type: "error",
+          text: resolveUserErrorMessage(data, { fallback: "İstek başarısız." })
+        });
+        setBulkPublishing(false);
+        return;
+      }
+
+      const result = data as OptimizeResponse;
+      setSelectedIds(new Set());
+      setLastResult(result);
+
+      if (result.errorCount === 0) {
+        setMessage({
+          type: "success",
+          text: `${result.successCount} ürün Trendyol'a gönderildi.`
+        });
+      } else {
+        setMessage({
+          type: "success",
+          text: `${result.successCount} ürün gönderildi, ${result.errorCount} ürün başarısız oldu (aşağıda detaylar).`
+        });
+      }
+
+      router.refresh();
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err instanceof Error ? err.message : "Gönderim sırasında hata oluştu."
+      });
+    } finally {
+      setBulkPublishing(false);
     }
   }
 
@@ -255,6 +320,14 @@ export function ProductsTable({ products }: ProductsTableProps) {
           </button>
           <button
             type="button"
+            onClick={handleBulkPublish}
+            disabled={bulkPublishing || selectedIds.size === 0}
+            className="inline-flex items-center rounded-md border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-300 hover:bg-emerald-900/30 disabled:opacity-50"
+          >
+            {bulkPublishing ? "Gönderiliyor..." : "Seçilenleri Trendyol'a Gönder"}
+          </button>
+          <button
+            type="button"
             onClick={() => setSelectedIds(new Set())}
             className="text-sm text-slate-400 hover:text-slate-200"
           >
@@ -314,7 +387,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/60">
+      <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-900/80 text-xs uppercase text-slate-400">
             <tr>

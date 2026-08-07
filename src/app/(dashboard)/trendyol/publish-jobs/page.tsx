@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type JobRow = {
   id: string;
@@ -27,7 +28,7 @@ function TrendyolPublishJobsPageContent() {
     try {
       const res = await fetch("/api/trendyol/publish-jobs");
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Liste yüklenemedi.");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Liste yüklenemedi."));
       setJobs(data.jobs ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Hata");

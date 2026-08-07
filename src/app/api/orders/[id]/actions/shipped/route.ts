@@ -5,6 +5,7 @@ import {
   updatePackageStatus,
   type TrendyolPackageActionPayload
 } from "@/lib/trendyolOrderActions";
+import { matchOrderCargoProvider } from "@/lib/trendyolCarrier";
 import { Prisma } from "@prisma/client";
 import {
   logOrderOperationCompleted,
@@ -19,8 +20,11 @@ export async function POST(request: Request, { params }: Params) {
   let ctx: Awaited<ReturnType<typeof requireActiveStore>>;
   try {
     ctx = await requireActiveStore();
-  } catch (e: any) {
-    const msg = e?.message === "NO_ACTIVE_STORE" ? "Aktif mağaza yok." : "Yetkisiz.";
+  } catch (e: unknown) {
+    const msg =
+      e instanceof Error && e.message === "NO_ACTIVE_STORE"
+        ? "Aktif mağaza yok."
+        : "Yetkisiz.";
     return NextResponse.json({ success: false, error: msg }, { status: 401 });
   }
 
@@ -36,6 +40,7 @@ export async function POST(request: Request, { params }: Params) {
       id: true,
       shipmentPackageId: true,
       cargoTrackingNumber: true,
+      cargoProviderCode: true,
       cargoProviderName: true
     }
   });
@@ -44,16 +49,29 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const body = (await request.json().catch(() => null)) as
-    | { trackingNumber?: unknown; cargoProviderName?: unknown }
+    | {
+        trackingNumber?: unknown;
+        providerCode?: unknown;
+        cargoProviderCode?: unknown;
+        cargoProviderName?: unknown;
+      }
     | null;
+
   const trackingNumber =
     typeof body?.trackingNumber === "string"
       ? body.trackingNumber.trim()
       : order.cargoTrackingNumber ?? "";
-  const cargoProviderName =
-    typeof body?.cargoProviderName === "string"
-      ? body.cargoProviderName.trim()
-      : order.cargoProviderName ?? "";
+
+  const rawCode =
+    (typeof body?.providerCode === "string" && body.providerCode.trim()) ||
+    (typeof body?.cargoProviderCode === "string" && body.cargoProviderCode.trim()) ||
+    order.cargoProviderCode?.trim() ||
+    "";
+
+  const rawName =
+    (typeof body?.cargoProviderName === "string" && body.cargoProviderName.trim()) ||
+    order.cargoProviderName?.trim() ||
+    null;
 
   if (!trackingNumber) {
     return NextResponse.json(
@@ -61,16 +79,31 @@ export async function POST(request: Request, { params }: Params) {
       { status: 400 }
     );
   }
-  if (!cargoProviderName) {
+
+  const matched = await matchOrderCargoProvider({
+    storeId: ctx.storeId,
+    providerCode: rawCode || null,
+    providerName: rawName
+  });
+
+  const providerCode = matched.providerCode || rawCode;
+  if (!providerCode) {
     return NextResponse.json(
-      { success: false, error: "cargoProviderName zorunludur." },
+      {
+        success: false,
+        error:
+          "providerCode zorunludur (örn. YKMP). Siparişte kargo kodu yoksa gövdede gönderin."
+      },
       { status: 400 }
     );
   }
 
+  const displayName = matched.providerName || rawName || providerCode;
+
   const payload: TrendyolPackageActionPayload = {
     trackingNumber,
-    cargoProviderName
+    providerCode,
+    cargoProviderName: displayName
   };
   const status = "Shipped" as const;
 
@@ -95,7 +128,9 @@ export async function POST(request: Request, { params }: Params) {
       packageStatus: result.sentStatus,
       lastFetchedAt: new Date(),
       cargoTrackingNumber: trackingNumber,
-      cargoProviderName: cargoProviderName
+      cargoProviderCode: providerCode,
+      cargoProviderName: displayName,
+      lastIngestSource: "operation"
     });
 
     await prisma.marketplaceOrderEvent.create({
@@ -104,16 +139,23 @@ export async function POST(request: Request, { params }: Params) {
         orderId: order.id,
         action: "TRENDYOL_PACKAGE_SYNCED",
         message: `Paket durumu güncellendi: ${result.sentStatus}`,
+        previousStatus: null,
+        nextStatus: result.sentStatus,
+        relatedShipmentPackageId: order.shipmentPackageId,
         rawData: (result.trendyolData ?? Prisma.JsonNull) as Prisma.InputJsonValue
       }
     });
     await logOrderOperationCompleted(ctx, order.id, "Shipped", result.trendyolData);
 
-    return NextResponse.json({ success: true, packageStatus: result.sentStatus });
+    return NextResponse.json({
+      success: true,
+      packageStatus: result.sentStatus,
+      providerCode,
+      cargoProviderName: displayName
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Trendyol aksiyonu başarısız.";
     await logOrderOperationFailed(ctx, order.id, "Shipped", message);
     return NextResponse.json({ success: false, error: message }, { status: 502 });
   }
 }
-

@@ -9,6 +9,7 @@ import {
   SectionHeader,
   StatusBadge
 } from "@/components/premium/design-system";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 type SyncLog = {
   id: string;
@@ -41,7 +42,7 @@ export default function AdminReferenceSyncPage() {
     try {
       const res = await fetch("/api/admin/reference-sync");
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Yükleme hatası");
+      if (!res.ok) throw new Error(extractApiErrorMessage(data, "Yükleme hatası"));
       setStatus(data.status ?? null);
       setLogs((data.logs ?? []) as SyncLog[]);
     } catch (e) {
@@ -94,7 +95,7 @@ export default function AdminReferenceSyncPage() {
       const res = await fetch(req.url, req.init);
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data?.error || "Sync başarısız");
+        throw new Error(extractApiErrorMessage(data, "Sync başarısız"));
       }
       setMessage(
         typeof data.message === "string" && data.message

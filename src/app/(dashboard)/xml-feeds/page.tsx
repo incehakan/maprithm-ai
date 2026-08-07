@@ -19,9 +19,14 @@ type XmlFeed = {
   lastSyncPublishedCount?: number | null;
   lastSyncInventoryPushCount?: number | null;
   deactivateMissingFromFeed?: boolean;
+  overrideBrandName?: string | null;
+  shipmentAddressId?: string | null;
+  returnAddressId?: string | null;
   createdAt: string;
   updatedAt: string;
 };
+
+type AddressOption = { id: string; label: string };
 
 function fmtDate(value?: string | null): string {
   if (!value) return "-";
@@ -52,6 +57,11 @@ function XmlFeedsPageContent() {
   const [syncIntervalMinutes, setSyncIntervalMinutes] = useState(60);
   const [isActive, setIsActive] = useState(true);
   const [deactivateMissingFromFeed, setDeactivateMissingFromFeed] = useState(false);
+  const [overrideBrandName, setOverrideBrandName] = useState("");
+  const [addressOptions, setAddressOptions] = useState<AddressOption[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [feedShipmentAddressId, setFeedShipmentAddressId] = useState("");
+  const [feedReturnAddressId, setFeedReturnAddressId] = useState("");
   const [creating, setCreating] = useState(false);
 
   const loadFeeds = useCallback(async () => {
@@ -79,6 +89,24 @@ function XmlFeedsPageContent() {
     loadFeeds();
   }, [loadFeeds]);
 
+  useEffect(() => {
+    async function loadAddresses() {
+      setLoadingAddresses(true);
+      try {
+        const res = await fetch("/api/integrations/trendyol/addresses");
+        const data = await res.json().catch(() => null);
+        if (res.ok && Array.isArray(data?.addresses)) {
+          setAddressOptions(data.addresses);
+        }
+      } catch {
+        // sessizce geç — adres seçimi opsiyonel, feed oluşturmayı engellemesin
+      } finally {
+        setLoadingAddresses(false);
+      }
+    }
+    loadAddresses();
+  }, []);
+
   async function createFeed(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
@@ -92,7 +120,10 @@ function XmlFeedsPageContent() {
           feedUrl,
           syncIntervalMinutes,
           isActive,
-          deactivateMissingFromFeed
+          deactivateMissingFromFeed,
+          overrideBrandName: overrideBrandName.trim() || null,
+          shipmentAddressId: feedShipmentAddressId || null,
+          returnAddressId: feedReturnAddressId || null
         })
       });
       const data = await safeParseJsonResponse<{ message?: string; error?: string }>(res);
@@ -105,6 +136,9 @@ function XmlFeedsPageContent() {
       setSyncIntervalMinutes(60);
       setIsActive(true);
       setDeactivateMissingFromFeed(false);
+      setOverrideBrandName("");
+      setFeedShipmentAddressId("");
+      setFeedReturnAddressId("");
       await loadFeeds();
     } catch (e) {
       setError(e instanceof Error ? e.message : "XML feed kaydı oluşturulamadı.");
@@ -190,6 +224,58 @@ function XmlFeedsPageContent() {
             <label className="label">Feed URL</label>
             <input className="input" value={feedUrl} onChange={(e) => setFeedUrl(e.target.value)} required />
           </div>
+          <div>
+            <label className="label">Marka (sabit — opsiyonel)</label>
+            <input
+              className="input"
+              value={overrideBrandName}
+              onChange={(e) => setOverrideBrandName(e.target.value)}
+              placeholder="Boş bırakılırsa XML'deki marka kullanılır"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Doluysa, bu feed'den gelen tüm ürünlerde XML'deki marka alanı yerine burada
+              seçtiğiniz marka kullanılır.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <label className="label">Sevkiyat adresi (opsiyonel)</label>
+              <select
+                className="input"
+                value={feedShipmentAddressId}
+                onChange={(e) => setFeedShipmentAddressId(e.target.value)}
+                disabled={loadingAddresses}
+              >
+                <option value="">Mağaza varsayılanını kullan</option>
+                {addressOptions.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">İade adresi (opsiyonel)</label>
+              <select
+                className="input"
+                value={feedReturnAddressId}
+                onChange={(e) => setFeedReturnAddressId(e.target.value)}
+                disabled={loadingAddresses}
+              >
+                <option value="">Mağaza varsayılanını kullan</option>
+                {addressOptions.map((a) => (
+                  <option key={`r-${a.id}`} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            Doluysa, bu feed'den gelen ürünler Trendyol'a yayınılırken mağaza genel varsayılanı
+            yerine buradaki adresler kullanılır (örn. farklı depo/tedarikçiden gelen bir feed için).
+            Adres listesi boş görünüyorsa önce Ayarlar → Trendyol'da "Adresleri getir"i çalıştırın.
+          </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <label className="inline-flex items-center gap-2 text-sm text-slate-300">
               <input
@@ -241,6 +327,8 @@ function XmlFeedsPageContent() {
                 <tr className="border-b border-slate-700 text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-2 pr-3">Ad</th>
                   <th className="pb-2 pr-3">URL</th>
+                  <th className="pb-2 pr-3">Marka</th>
+                  <th className="pb-2 pr-3">Adres</th>
                   <th className="pb-2 pr-3">Aktif</th>
                   <th className="pb-2 pr-3">Aralık (dk)</th>
                   <th className="pb-2 pr-3">Son senkron</th>
@@ -258,6 +346,16 @@ function XmlFeedsPageContent() {
                     <td className="py-2 pr-3 text-slate-100">{feed.name}</td>
                     <td className="py-2 pr-3 max-w-[320px] truncate text-xs text-slate-400" title={feed.feedUrl}>
                       {feed.feedUrl}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-300">
+                      {feed.overrideBrandName || <span className="text-slate-600">XML'den</span>}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-300">
+                      {feed.shipmentAddressId || feed.returnAddressId ? (
+                        <span className="text-emerald-300">Özel</span>
+                      ) : (
+                        <span className="text-slate-600">Varsayılan</span>
+                      )}
                     </td>
                     <td className="py-2 pr-3">
                       <span

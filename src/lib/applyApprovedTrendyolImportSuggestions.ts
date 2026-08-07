@@ -65,19 +65,19 @@ async function loadCategoryAttrDefsForReadiness(
   tx: Prisma.TransactionClient,
   categoryId: number
 ): Promise<CategoryAttrDef[]> {
-  const rows = await tx.trendyolCategoryAttribute.findMany({
-    where: { categoryId },
+  const rows = await tx.marketplaceAttribute.findMany({
+    where: { platform: "TRENDYOL", categoryId: categoryId.toString() },
     select: {
-      attributeId: true,
-      attributeName: true,
-      isRequired: true
+      externalId: true,
+      name: true,
+      required: true
     },
-    orderBy: { attributeName: "asc" }
+    orderBy: { name: "asc" }
   });
-  return rows.map((r) => ({
-    attributeId: r.attributeId,
-    attributeName: r.attributeName,
-    isRequired: r.isRequired
+  return rows.map((r: any) => ({
+    attributeId: parseInt(r.externalId, 10),
+    attributeName: r.name,
+    isRequired: r.required
   }));
 }
 
@@ -103,6 +103,12 @@ export async function applyOneApprovedTrendyolSuggestionInTx(
   s: SuggestionWithRowAndAttrs
 ): Promise<ApplyApprovedSuggestionResult> {
   const row = s.importRow;
+
+  const userSettingsRow = await tx.userSettings.findUnique({
+    where: { storeId },
+    select: { xmlBarcodePrefix: true }
+  });
+  const userSettingsPrefix = userSettingsRow?.xmlBarcodePrefix ?? null;
 
   if (s.suggestedCategoryId == null) {
     return {
@@ -162,7 +168,7 @@ export async function applyOneApprovedTrendyolSuggestionInTx(
     });
   }
 
-  const barcode = resolveTrendyolBarcodeForImportRow(row);
+  const barcode = resolveTrendyolBarcodeForImportRow(row, userSettingsPrefix);
   const stockCode = resolveTrendyolStockCodeForImportRow(row, importJobId);
   const productMainId = buildProductMainId(product.id);
 

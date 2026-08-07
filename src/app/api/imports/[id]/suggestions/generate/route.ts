@@ -252,27 +252,24 @@ export async function POST(request: Request, { params }: Params) {
 
   try {
   const [brands, categories] = await Promise.all([
-    prisma.trendyolBrand.findMany({
-      where: trendyolBrandListableWhere,
-      select: { brandId: true, name: true }
+    prisma.marketplaceBrand.findMany({
+      where: { platform: "TRENDYOL", isActive: true },
+      select: { externalId: true, name: true }
     }),
-    prisma.trendyolCategory.findMany({
-      where: {
-        ...trendyolCategoryListableWhere,
-        isLeaf: true
-      },
-      select: { categoryId: true, name: true, isLeaf: true }
+    prisma.marketplaceCategory.findMany({
+      where: { platform: "TRENDYOL", isActive: true },
+      select: { externalId: true, name: true, parentId: true }
     })
   ]);
 
-  const brandRows = brands.map((b) => ({
-    brandId: b.brandId,
+  const brandRows = brands.map((b: any) => ({
+    brandId: parseInt(b.externalId, 10),
     name: b.name
   }));
-  const categoryRows = categories.map((c) => ({
-    categoryId: c.categoryId,
+  const categoryRows = categories.map((c: any) => ({
+    categoryId: parseInt(c.externalId, 10),
     name: c.name,
-    isLeaf: c.isLeaf
+    isLeaf: c.metadata && typeof c.metadata === "object" && (c.metadata as any).isLeaf === true
   }));
 
   let created = 0;

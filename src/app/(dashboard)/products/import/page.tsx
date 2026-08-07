@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useRef, useState } from "react";
 import { ClientPagePermissionGuard } from "@/components/auth/ClientPagePermissionGuard";
+import { extractApiErrorMessage } from "@/lib/apiErrorMessage";
 
 const EXAMPLE_CSV = `name,description,category,brand,sku,price,stock,seoDescription,tags,status
 "Örnek Ürün 1","Kısa açıklama",Giyim,MarkaA,SKU001,99.99,10,"SEO açıklaması","etiket1,etiket2",draft
@@ -153,7 +154,7 @@ function ImportProductsPageContent() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(data?.error || "İçe aktarma başarısız.");
+        throw new Error(extractApiErrorMessage(data, "İçe aktarma başarısız."));
       }
 
       setResult(data as ImportResponse);

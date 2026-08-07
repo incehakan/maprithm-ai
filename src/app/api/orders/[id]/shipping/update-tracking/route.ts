@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { recordShippingOperationAudit } from "@/lib/orderShippingAudit";
 import { requireActiveStore, requirePermission } from "@/lib/requireActiveStore";
+import { matchOrderCargoProvider } from "@/lib/trendyolCarrier";
 import {
   buildLocalTrackingLinkAfterUpdate,
   resolveProviderNameFromReference,
@@ -90,17 +91,25 @@ export async function POST(
   }
 
   const nameFromRef = await resolveProviderNameFromReference(v.value.providerCode);
-  const displayName = nameFromRef ?? order.cargoProviderName ?? v.value.providerCode;
+  // Mağaza MarketplaceCarrier + global referans ile zenginleştir
+  const matched = await matchOrderCargoProvider({
+    storeId: ctx.storeId,
+    providerCode: v.value.providerCode,
+    providerName: nameFromRef ?? order.cargoProviderName
+  });
+  const displayName =
+    matched.providerName ?? nameFromRef ?? order.cargoProviderName ?? v.value.providerCode;
+  const resolvedCode = matched.providerCode || v.value.providerCode;
   const link = buildLocalTrackingLinkAfterUpdate(
     v.value.trackingNumber,
-    v.value.providerCode,
+    resolvedCode,
     displayName
   );
 
   await secureMarketplaceOrderUpdateMany(order.id, ctx.storeId, {
     cargoTrackingNumber: v.value.trackingNumber,
     cargoSenderNumber: v.value.cargoSenderNumber,
-    cargoProviderCode: v.value.providerCode,
+    cargoProviderCode: resolvedCode,
     cargoProviderName: displayName,
     cargoTrackingLink: link ?? order.cargoTrackingLink,
     trackingUpdatedAt: new Date(),
@@ -117,8 +126,9 @@ export async function POST(
     action: "TRACKING_UPDATED",
     message: "Takip numarası Trendyol ile güncellendi.",
     rawData: {
-      providerCode: v.value.providerCode,
-      trackingNumber: v.value.trackingNumber
+      providerCode: resolvedCode,
+      trackingNumber: v.value.trackingNumber,
+      matchedFrom: matched.matchedFrom
     },
     activityAction: "TRENDYOL_TRACKING_UPDATED",
     activityMessage: `Takip güncellendi: ${pkg}`

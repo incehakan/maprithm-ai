@@ -59,6 +59,9 @@ function normalizeLinesForCancel(
 
 export type TrendyolPackageActionPayload = {
   trackingNumber?: string;
+  /** Trendyol tracking-details body: gerçek providerCode (örn. YKMP) */
+  providerCode?: string;
+  /** Görünen ad; API'ye providerCode olarak GÖNDERİLMEZ */
   cargoProviderName?: string;
   reasonId?: number;
   // optional override for cancel/unsupplied
@@ -148,15 +151,24 @@ export async function updatePackageStatus(
     return { trendyolData: res.data, sentStatus: status };
   }
 
-  // Shipped => tracking-details endpoint
+  // Shipped => tracking-details endpoint (providerCode zorunlu — isim değil)
   if (status === "Shipped") {
     const trackingNumber = payload.trackingNumber?.trim();
-    const cargoProviderName = payload.cargoProviderName?.trim();
+    const providerCode =
+      payload.providerCode?.trim() ||
+      // Geriye dönük: yanlışlıkla isim yerine kod gönderilmiş olabilir
+      (payload.cargoProviderName &&
+      /^[A-Za-z0-9._\-]{2,64}$/.test(payload.cargoProviderName.trim()) &&
+      !/\s/.test(payload.cargoProviderName.trim())
+        ? payload.cargoProviderName.trim()
+        : "");
     if (!trackingNumber) {
       throw new Error("Şunlar gerekli: trackingNumber.");
     }
-    if (!cargoProviderName) {
-      throw new Error("Şunlar gerekli: cargoProviderName.");
+    if (!providerCode) {
+      throw new Error(
+        "Şunlar gerekli: providerCode (örn. YKMP). Görünen kargo adı yeterli değildir."
+      );
     }
 
     const path = `/integration/order/sellers/${encodeURIComponent(
@@ -167,7 +179,7 @@ export async function updatePackageStatus(
 
     const body = {
       cargoSenderNumber: trackingNumber,
-      providerCode: cargoProviderName
+      providerCode
     };
 
     const res = await trendyolPutJson<unknown>(userId, storeId, path, body, {

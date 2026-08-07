@@ -14,6 +14,32 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Retry-After header'ını ayrıştırır. HTTP standardına göre iki biçimde
+ * gelebilir: saniye cinsinden tam sayı ("120") veya HTTP-date. Hepsiburada
+ * rate limit aşımında (429) X-RateLimit-Reset (saniye) da döndürebiliyor —
+ * o da burada fallback olarak kontrol edilir.
+ */
+function parseRetryAfterMs(res: Response): number | null {
+  const retryAfter = res.headers.get("retry-after");
+  if (retryAfter) {
+    const asSeconds = Number(retryAfter);
+    if (Number.isFinite(asSeconds) && asSeconds >= 0) return asSeconds * 1000;
+    const asDate = Date.parse(retryAfter);
+    if (!Number.isNaN(asDate)) {
+      const diff = asDate - Date.now();
+      if (diff > 0) return diff;
+    }
+  }
+  const rateLimitReset = res.headers.get("x-ratelimit-reset");
+  if (rateLimitReset) {
+    const asSeconds = Number(rateLimitReset);
+    if (Number.isFinite(asSeconds) && asSeconds >= 0) return asSeconds * 1000;
+  }
+  return null;
+}
+
+
 function isRetryableNetworkError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return (
@@ -45,7 +71,19 @@ export async function fetchWithTimeoutAndRetry(
       const res = await fetch(input, { ...init, signal: controller.signal });
       clearTimeout(t);
       if (retryOnStatuses.includes(res.status) && attempt < maxRetries) {
-        await sleep(retryDelayMs * (attempt + 1));
+        const retryAfterMs = parseRetryAfterMs(res);
+        const delay = retryAfterMs ?? retryDelayMs * (attempt + 1);
+        if (res.status === 429) {
+          logger.warn("rate_limited", {
+            helper: "fetchWithTimeoutAndRetry",
+            requestName: options?.requestName,
+            requestId: options?.requestId ?? null,
+            attempt,
+            retryAfterMs: retryAfterMs ?? null,
+            waitedMs: delay
+          });
+        }
+        await sleep(delay);
         continue;
       }
       return res;

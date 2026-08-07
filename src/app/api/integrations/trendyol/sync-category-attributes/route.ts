@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createActivityLog } from "@/lib/activityLog";
 import {
-  syncTrendyolCategoryAttributesForCategorySystem,
+  syncTrendyolCategoryAttributes,
   syncTrendyolCategoryAttributesForAllLeafCategoriesSystem
 } from "@/lib/trendyolSyncCategoryAttributes";
 import { requireActiveStore } from "@/lib/requireActiveStore";
@@ -45,15 +45,11 @@ export async function POST(request: Request) {
       if (!bulk.success) {
         return NextResponse.json(
           { error: bulk.message },
-          { status: bulk.status }
+          { status: 400 }
         );
       }
 
       const d = bulk.data;
-      const failedNote =
-        d.failedCategoryIds.length > 0
-          ? ` Başarısız kategori ID: ${d.failedCategoryIds.slice(0, 20).join(", ")}${d.failedCategoryIds.length > 20 ? "…" : ""}.`
-          : "";
 
       await createActivityLog({
         userId: ctx.userId,
@@ -62,7 +58,7 @@ export async function POST(request: Request) {
         action: "TRENDYOL_CATEGORY_ATTRIBUTES_SYNCED",
         entityType: "TRENDYOL_SYNC",
         entityId: null,
-        message: `Trendyol kategori özellikleri senkronize edildi (${d.categoriesProcessed} yaprak kategori, ${d.attributeCount} özellik, ${d.valueCount} değer).${failedNote}`
+        message: `Trendyol kategori özellikleri senkronize edildi (${d.categoriesProcessed} yaprak kategori, ${d.attributeCount} özellik, ${d.valueCount} değer).`
       });
 
       return NextResponse.json({
@@ -72,7 +68,6 @@ export async function POST(request: Request) {
         categoriesFailed: d.categoriesFailed,
         attributeCount: d.attributeCount,
         valueCount: d.valueCount,
-        failedCategoryIds: d.failedCategoryIds,
         message: `${d.categoriesProcessed} yaprak kategori işlendi; ${d.attributeCount} özellik, ${d.valueCount} değer kaydedildi.${d.categoriesFailed > 0 ? ` ${d.categoriesFailed} kategoride hata.` : ""}`
       });
     } catch (error) {
@@ -108,14 +103,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    const one = await syncTrendyolCategoryAttributesForCategorySystem(
+    const one = await syncTrendyolCategoryAttributes(
       categoryId
     );
 
-    if (!one.success) {
+    if (!one.ok) {
       return NextResponse.json(
         { error: one.message },
-        { status: one.status >= 400 ? one.status : 500 }
+        { status: 500 }
       );
     }
 

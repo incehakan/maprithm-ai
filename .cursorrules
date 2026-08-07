@@ -1,0 +1,23 @@
+# CURSOR AGENT RULES & ARCHITECTURAL CONTEXT
+
+## 1. AUTONOMOUS EXECUTION & TERMINAL
+- You have FULL autonomy to inspect, create, edit files, and execute terminal commands.
+- DO NOT ask for user permission before creating files, applying database operations, or running read/build commands.
+- ALWAYS test type safety after making structural code changes by running `npx tsc --noEmit` in the terminal.
+- Execute terminal commands and DB operations automatically without requesting explicit confirmation.
+
+## 2. DATABASE & MCP ACCESS PERMISSIONS
+- Direct database access (PostgreSQL/Oracle via Prisma ORM & active MCP connections) is ACTIVE and FULLY AUTHORIZED.
+- You have READ and WRITE permissions to perform schema inspections, queries, migrations, and seed executions.
+- Do NOT ask the user to manually execute database commands or queries unless an authentication failure occurs.
+- Automatically verify database migrations or model integrity when modifying database schemas or Prisma models.
+
+## 3. ARCHITECTURE & DB SCHEMA CONTEXT
+- Project Context: Multi-vendor marketplace integration focused on Trendyol.
+- Generic EAV Database Schema: Use generic models (`MarketplaceCategory`, `MarketplaceBrand`, `MarketplaceAttribute`, `MarketplaceAttributeValue`, `MarketplaceCarrier`).
+- Legacy Order Models: `MarketplaceOrder`, `MarketplaceOrderLine`, `MarketplaceOrderInvoice` are generic and preserved.
+- Draft Files: Files like `hepsiburadaPartnerApi.ts` are draft templates — DO NOT modify or delete them unless explicitly told.
+
+## 4. CODE STYLE & QUALITY
+- TypeScript strict mode compliance.
+- Implement robust error handling (try-catch) and structured logging for API integrations and DB operations.
