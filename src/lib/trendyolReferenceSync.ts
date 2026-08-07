@@ -10,6 +10,12 @@ import { anyStoreProductV2Enabled } from "@/lib/trendyolStoreProductV2";
 import {
   ISO3166_ALPHA2_COUNTRIES
 } from "@/lib/trendyolOriginCountrySeed";
+import {
+  ensureSystemReferenceStore,
+  SYSTEM_REFERENCE_STORE_ID
+} from "@/lib/systemReferenceStore";
+
+export { ensureSystemReferenceStore, SYSTEM_REFERENCE_STORE_ID };
 
 type TrendyolBrandRaw = Record<string, unknown>;
 type TrendyolBrandsResponse = { brands: TrendyolBrandRaw[] };
@@ -49,29 +55,6 @@ function flattenCategories(
 /** Prisma/Postgres bind-variable limiti (~32767) için güvenli upsert paket boyutu. */
 const CHUNK_SIZE = 500;
 
-/** Global referans satırlarının bağlandığı sistem mağazası (nil UUID). */
-export const SYSTEM_REFERENCE_STORE_ID =
-  "00000000-0000-0000-0000-000000000000";
-
-/** MarketplaceBrand/Category/Attribute FK'si için sistem Store satırını garanti eder. */
-export async function ensureSystemReferenceStore(): Promise<void> {
-  await prisma.store.upsert({
-    where: { id: SYSTEM_REFERENCE_STORE_ID },
-    create: {
-      id: SYSTEM_REFERENCE_STORE_ID,
-      name: "System Reference Store",
-      slug: "system-reference",
-      status: "active",
-      currency: "TRY",
-      locale: "tr-TR"
-    },
-    update: {
-      name: "System Reference Store",
-      status: "active"
-    }
-  });
-}
-
 function chunkArray<T>(items: T[], chunkSize: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += chunkSize) {
@@ -81,6 +64,8 @@ function chunkArray<T>(items: T[], chunkSize: number): T[][] {
 }
 
 export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
+  await ensureSystemReferenceStore();
+
   let totalProcessed = 0;
   let page = 0;
   const pageSize = 2000;
@@ -176,6 +161,8 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
 }
 
 export async function syncGlobalTrendyolCategories(): Promise<{ count: number }> {
+  await ensureSystemReferenceStore();
+
   const now = new Date();
   const SYSTEM_STORE_ID = SYSTEM_REFERENCE_STORE_ID;
   const result = await trendyolSystemFetch<TrendyolCategoriesResponse>(

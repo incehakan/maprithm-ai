@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { trendyolSystemFetch } from "@/lib/trendyolSystemFetch";
+import {
+  ensureSystemReferenceStore,
+  SYSTEM_REFERENCE_STORE_ID
+} from "@/lib/systemReferenceStore";
 
 /** Prisma/Postgres bind-variable limiti (~32767) için güvenli upsert paket boyutu. */
 const CHUNK_SIZE = 500;
 
-const SYSTEM_STORE_ID = "00000000-0000-0000-0000-000000000000";
+const SYSTEM_STORE_ID = SYSTEM_REFERENCE_STORE_ID;
 
 type AttributeValueRaw = {
   id: number;
@@ -30,6 +34,8 @@ export async function syncTrendyolCategoryAttributes(
   options?: { useProductV2Paths?: boolean }
 ): Promise<{ ok: boolean; message?: string; attributeCount?: number; valueCount?: number }> {
   try {
+    await ensureSystemReferenceStore();
+
     const v2 = options?.useProductV2Paths;
     const url = v2
       ? `/integration/product/product-categories/${categoryId}/attributes?size=1000&page=0`
@@ -172,6 +178,8 @@ export async function syncTrendyolCategoryAttributesForAllLeafCategoriesSystem(o
   };
 }> {
   try {
+    await ensureSystemReferenceStore();
+
     const leaves = await prisma.marketplaceCategory
       .findMany({
         where: {
