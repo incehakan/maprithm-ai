@@ -49,6 +49,29 @@ function flattenCategories(
 /** Prisma/Postgres bind-variable limiti (~32767) için güvenli upsert paket boyutu. */
 const CHUNK_SIZE = 500;
 
+/** Global referans satırlarının bağlandığı sistem mağazası (nil UUID). */
+export const SYSTEM_REFERENCE_STORE_ID =
+  "00000000-0000-0000-0000-000000000000";
+
+/** MarketplaceBrand/Category/Attribute FK'si için sistem Store satırını garanti eder. */
+export async function ensureSystemReferenceStore(): Promise<void> {
+  await prisma.store.upsert({
+    where: { id: SYSTEM_REFERENCE_STORE_ID },
+    create: {
+      id: SYSTEM_REFERENCE_STORE_ID,
+      name: "System Reference Store",
+      slug: "system-reference",
+      status: "active",
+      currency: "TRY",
+      locale: "tr-TR"
+    },
+    update: {
+      name: "System Reference Store",
+      status: "active"
+    }
+  });
+}
+
 function chunkArray<T>(items: T[], chunkSize: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += chunkSize) {
@@ -63,7 +86,7 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
   const pageSize = 2000;
   const now = new Date();
   const seen = new Set<number>();
-  const SYSTEM_STORE_ID = "00000000-0000-0000-0000-000000000000";
+  const SYSTEM_STORE_ID = SYSTEM_REFERENCE_STORE_ID;
 
   while (true) {
     const result = await trendyolSystemFetch<TrendyolBrandsResponse>(
@@ -154,7 +177,7 @@ export async function syncGlobalTrendyolBrands(): Promise<{ count: number }> {
 
 export async function syncGlobalTrendyolCategories(): Promise<{ count: number }> {
   const now = new Date();
-  const SYSTEM_STORE_ID = "00000000-0000-0000-0000-000000000000";
+  const SYSTEM_STORE_ID = SYSTEM_REFERENCE_STORE_ID;
   const result = await trendyolSystemFetch<TrendyolCategoriesResponse>(
     "/integration/product/product-categories"
   );
@@ -303,6 +326,7 @@ export async function runGlobalTrendyolReferenceSync(params?: {
   });
 
   try {
+    await ensureSystemReferenceStore();
     const carriers = await syncGlobalTrendyolCarrierCompanies();
     const brands = await syncGlobalTrendyolBrands();
     const categories = await syncGlobalTrendyolCategories();
